@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-// --- NEW: Import the public Supabase client ---
-import { supabase } from "@/lib/supabase-client"
+// --- THE FIX IS HERE: Using a relative path ---
+import { supabase } from "../../../lib/supabase-client"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
