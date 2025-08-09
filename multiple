@@ -1,0 +1,39 @@
+// app/admin/page.tsx
+import { redirect } from "next/navigation"
+
+export default function AdminIndex() {
+redirect("/admin/finance")
+}
+
+// components/header.tsx
+import React from "react";
+import { Button } from "@ui/components/button";
+import { LayoutDashboard, LogIn } from "@ui/icons";
+import { navLink } from "@ui/components/nav-link";
+
+interface HeaderProps {
+authed: boolean;
+}
+
+export function Header({ authed }: HeaderProps) {
+return (
+  <header>
+    <nav>
+      {authed
+        ? navLink("/admin/finance", "Dashboard", <LayoutDashboard className="h-4 w-4" />)
+        : navLink("/login", "Login", <LogIn className="h-4 w-4" />)}
+    </nav>
+    <div className="mobile-menu">
+      {authed ? (
+        <Button variant="outline" onClick={() => (window.location.href = "/admin/finance")}>
+          Dashboard
+        </Button>
+      ) : (
+        <Button variant="outline" onClick={() => (window.location.href = "/login")}>
+          Login
+        </Button>
+      )}
+    </div>
+  </header>
+);
+}
