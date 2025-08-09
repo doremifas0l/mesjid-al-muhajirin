@@ -65,7 +65,7 @@ export async function POST(req: Request) {
 - Today's date is ${new Date().toISOString()}.`;
 
     const result = await streamText({
-      model: google('gemini-1.5-flash'),
+      model: google('gemini-2.5-flash'),
       system,
       messages: convertToModelMessages(messages),
       // Provide the tools to the AI
