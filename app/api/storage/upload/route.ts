@@ -5,57 +5,46 @@ const BUCKET = "site-assets"
 
 export async function POST(req: Request) {
   try {
-    const formData = await req.formData()
-    const file = formData.get("file") as File | null
-    const folder = (formData.get("folder") as string | null) ?? "misc"
+    const form = await req.formData()
+    const file = form.get("file") as File | null
+    const folder = (form.get("folder") as string | null) ?? "uploads"
 
     if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 })
+      return NextResponse.json({ error: "Missing file" }, { status: 400 })
     }
 
-    const supabase = getSupabaseAdmin()
+    const admin = getSupabaseAdmin()
 
-    // Ensure bucket exists and is public
-    const { data: buckets, error: listErr } = await supabase.storage.listBuckets()
-    if (listErr) {
-      return NextResponse.json({ error: listErr.message }, { status: 500 })
-    }
-    const exists = buckets?.some((b: any) => b.name === BUCKET)
+    // Ensure bucket exists (public)
+    const { data: buckets } = await admin.storage.listBuckets()
+    const exists = (buckets || []).some((b) => b.name === BUCKET)
     if (!exists) {
-      const { error: createErr } = await supabase.storage.createBucket(BUCKET, {
-        public: true,
-        // Optional restrictions to images up to 10MB (see docs)
-        allowedMimeTypes: ["image/*"],
-        fileSizeLimit: "10MB",
-      })
-      // If bucket already exists on a race condition, ignore
-      if (createErr && !/exists/i.test(createErr.message)) {
-        return NextResponse.json({ error: createErr.message }, { status: 500 })
-      }
+      await admin.storage
+        .createBucket(BUCKET, {
+          public: true,
+          fileSizeLimit: "20MB",
+          allowedMimeTypes: ["image/jpeg", "image/png", "image/webp", "image/gif"],
+        })
+        .catch(() => {
+          // ignore if created concurrently
+        })
     }
 
-    const ext = (() => {
-      const parts = file.name.split(".")
-      const e = parts.length > 1 ? parts.pop() : ""
-      return (e || "bin").toLowerCase()
-    })()
+    const ext = (file.name.split(".").pop() || "").toLowerCase()
+    const safeExt = ext && ext.length <= 5 ? `.${ext}` : ""
+    const name = `${Date.now()}-${Math.random().toString(36).slice(2)}${safeExt}`
+    const path = `${folder}/${name}`
 
-    const safeName = file.name.replace(/\s+/g, "-").toLowerCase()
-    const path = `${folder}/${crypto.randomUUID()}-${safeName}.${ext}`
-
-    // Use ArrayBuffer per supabase-js upload support
-    const ab = await file.arrayBuffer()
-
-    const { error: uploadErr } = await supabase.storage.from(BUCKET).upload(path, ab, {
+    const arrayBuf = await file.arrayBuffer()
+    const { error: upErr } = await admin.storage.from(BUCKET).upload(path, arrayBuf, {
       contentType: file.type || "application/octet-stream",
-      cacheControl: "3600",
       upsert: false,
     })
-    if (uploadErr) {
-      return NextResponse.json({ error: uploadErr.message }, { status: 500 })
+    if (upErr) {
+      return NextResponse.json({ error: `Upload failed: ${upErr.message}` }, { status: 500 })
     }
 
-    const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path)
+    const { data: pub } = admin.storage.from(BUCKET).getPublicUrl(path)
     return NextResponse.json({ path, publicUrl: pub.publicUrl })
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Upload failed" }, { status: 500 })

@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/lib/supabase/admin"
 
+// Events table columns suggestion:
+// id uuid default gen_random_uuid() primary key
+// title text not null
+// starts_at timestamptz not null
+// location text
+// description text
+// image_url text
+// image_path text
+
 export async function GET() {
   const admin = getSupabaseAdmin()
   const { data, error } = await admin.from("events").select("*").order("starts_at", { ascending: true })

@@ -1,21 +1,20 @@
 "use client"
 
 import Header from "@/components/header"
-import EventCard from "@/components/event-card"
+import EventCard, { type EventCardInput } from "@/components/event-card"
 import ChatBot from "@/components/chat-bot"
 import FinancePreview from "@/components/finance-preview"
 import FeaturedVideo from "@/components/featured-video"
-import EventSlider from "@/components/event-slider"
 import HeroSlideshow from "@/components/hero-slideshow"
 import { Button } from "@/components/ui/button"
 import { ArrowRight } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 
-export type EventItem = {
+type DbEvent = {
   id: string
   title: string
   starts_at: string
-  location: string
+  location?: string
   description?: string
   image_url?: string
 }
@@ -34,7 +33,7 @@ type HomeContent = {
 }
 
 export default function HomeContent() {
-  const [events, setEvents] = useState<EventItem[]>([])
+  const [events, setEvents] = useState<DbEvent[]>([])
   const [content, setContent] = useState<HomeContent>({
     site_title: "Mesjid Al-Muhajirin Sarimas",
     hero_tag: "AI-Powered Community Hub",
@@ -88,7 +87,7 @@ export default function HomeContent() {
       const eRes = await fetch("/api/events")
       if (eRes.ok) {
         const j = await eRes.json()
-        setEvents((j?.data as EventItem[]) || [])
+        setEvents((j?.data as DbEvent[]) || [])
       }
     })()
   }, [])
@@ -96,9 +95,24 @@ export default function HomeContent() {
   const upcoming = useMemo(() => {
     const now = Date.now()
     return [...events]
-      .filter((e) => new Date(e.starts_at).getTime() >= now - 24 * 60 * 60 * 1000)
+      .filter((e) => {
+        const t = new Date(e.starts_at).getTime()
+        return Number.isFinite(t) && t >= now - 24 * 60 * 60 * 1000
+      })
       .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime())
   }, [events])
+
+  // Adapter to EventCardInput
+  function toCard(e: DbEvent): EventCardInput {
+    return {
+      id: e.id,
+      title: e.title,
+      starts_at: e.starts_at,
+      location: e.location,
+      description: e.description,
+      image_url: e.image_url,
+    }
+  }
 
   return (
     <div className="min-h-screen bg-white">
@@ -141,13 +155,20 @@ export default function HomeContent() {
           </p>
         ) : upcoming.length <= 2 ? (
           <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {upcoming.map((event) => (
-              <EventCard key={event.id} event={event as any} />
+            {upcoming.map((ev) => (
+              <EventCard key={ev.id} event={toCard(ev)} />
             ))}
           </div>
         ) : (
           <div className="mt-6">
-            <EventSlider events={upcoming as any} />
+            {/* Slider receives already-sorted events; reuse EventCard per-item inside slider if needed */}
+            <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth pb-2">
+              {upcoming.map((ev) => (
+                <div key={ev.id} className="min-w-[280px] max-w-[360px] snap-start">
+                  <EventCard event={toCard(ev)} />
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </section>

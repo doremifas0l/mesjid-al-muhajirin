@@ -9,12 +9,12 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Trash2, Plus } from "lucide-react"
 
-type EventItem = {
+type EventRowType = {
   id: string
   title: string
   starts_at: string // ISO
   location: string
-  description: string
+  description?: string
   image_url?: string
   image_path?: string
 }
@@ -38,7 +38,7 @@ async function uploadImage(file: File) {
 }
 
 export default function EventsAdminPage() {
-  const [events, setEvents] = useState<EventItem[]>([])
+  const [events, setEvents] = useState<EventRowType[]>([])
   const [form, setForm] = useState<{
     title: string
     date: string
@@ -60,56 +60,76 @@ export default function EventsAdminPage() {
     recurrence: "one-time",
     count: 1,
   })
+  const [uploading, setUploading] = useState(false)
 
   useEffect(() => {
     ;(async () => {
       const res = await fetch("/api/events")
       if (res.ok) {
         const j = await res.json()
-        setEvents(j?.data || [])
+        const list = (j?.data || []) as EventRowType[]
+        setEvents(list)
       }
     })()
   }, [])
 
   async function handleImageUpload(file: File) {
     try {
+      setUploading(true)
       const { path, publicUrl } = await uploadImage(file)
       setForm((f) => ({ ...f, image_url: publicUrl, image_path: path }))
     } catch (e: any) {
-      console.error(e)
       alert(`Gagal mengunggah gambar: ${e?.message || "Unknown error"}`)
+    } finally {
+      setUploading(false)
     }
+  }
+
+  function buildISO(date: string, time: string) {
+    // robustly build ISO string (local date+time -> ISO)
+    const safeDate = date || new Date().toISOString().slice(0, 10)
+    const safeTime = time || "00:00"
+    const d = new Date(`${safeDate}T${safeTime}:00`)
+    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString()
   }
 
   async function addEvent() {
     const count = Math.max(1, form.count || 1)
-    const startDate = new Date(`${form.date}T${form.time || "00:00"}`)
-    const toInsert: Omit<EventItem, "id">[] = []
+    const startISO = buildISO(form.date, form.time)
+
+    const toInsert: Omit<EventRowType, "id">[] = []
     for (let i = 0; i < count; i++) {
-      const d = new Date(startDate)
-      if (form.recurrence === "daily" && i > 0) d.setDate(startDate.getDate() + i)
-      if (form.recurrence === "weekly" && i > 0) d.setDate(startDate.getDate() + 7 * i)
-      if (form.recurrence === "monthly" && i > 0) d.setMonth(startDate.getMonth() + i)
+      const base = new Date(startISO)
+      const d = new Date(base)
+      if (form.recurrence === "daily" && i > 0) d.setDate(base.getDate() + i)
+      if (form.recurrence === "weekly" && i > 0) d.setDate(base.getDate() + 7 * i)
+      if (form.recurrence === "monthly" && i > 0) d.setMonth(base.getMonth() + i)
+
       toInsert.push({
         title: form.title.trim() || "Kegiatan Masjid",
         starts_at: d.toISOString(),
         location: form.location.trim() || "Mesjid Al Muhajirin",
-        description: form.description.trim(),
+        description: form.description.trim() || "",
         image_url: form.image_url || undefined,
         image_path: form.image_path || undefined,
       } as any)
     }
+
     for (const ev of toInsert) {
       const res = await fetch("/api/events", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(ev),
       })
-      if (res.ok) {
-        const { data } = await res.json()
-        setEvents((prev) => [data, ...prev])
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        alert(`Gagal menambah kegiatan: ${j?.error || res.statusText}`)
+        continue
       }
+      const { data } = await res.json()
+      setEvents((prev) => [data as EventRowType, ...prev])
     }
+
     setForm((f) => ({
       ...f,
       title: "",
@@ -135,6 +155,9 @@ export default function EventsAdminPage() {
           body: JSON.stringify({ path: image_path }),
         }).catch(() => {})
       }
+    } else {
+      const j = await res.json().catch(() => ({}))
+      alert(`Gagal menghapus: ${j?.error || res.statusText}`)
     }
   }
 
@@ -142,14 +165,20 @@ export default function EventsAdminPage() {
   const upcoming = useMemo(
     () =>
       [...events]
-        .filter((e) => new Date(e.starts_at).getTime() >= now)
+        .filter((e) => {
+          const t = new Date(e.starts_at).getTime()
+          return Number.isFinite(t) && t >= now
+        })
         .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime()),
     [events, now],
   )
   const past = useMemo(
     () =>
       [...events]
-        .filter((e) => new Date(e.starts_at).getTime() < now)
+        .filter((e) => {
+          const t = new Date(e.starts_at).getTime()
+          return Number.isFinite(t) && t < now
+        })
         .sort((a, b) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime()),
     [events, now],
   )
@@ -192,21 +221,25 @@ export default function EventsAdminPage() {
                 onChange={(e) => setForm({ ...form, time: e.target.value })}
               />
             </div>
+
             <div className="space-y-1 sm:col-span-2">
               <Label htmlFor="image">Gambar Kegiatan</Label>
-              <div className="flex items-center gap-3">
-                <input
-                  id="image"
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0]
-                    if (f) handleImageUpload(f)
-                  }}
-                />
-                <span className="text-xs text-neutral-500">atau tempel URL (opsional):</span>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-3">
+                  <input
+                    id="image"
+                    type="file"
+                    accept="image/*"
+                    disabled={uploading}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) void handleImageUpload(f)
+                    }}
+                  />
+                  {uploading && <span className="text-xs text-neutral-500">Mengunggah...</span>}
+                </div>
                 <Input
-                  placeholder="https://contoh.com/foto.jpg"
+                  placeholder="atau tempel URL (opsional)"
                   value={form.image_url}
                   onChange={(e) => setForm({ ...form, image_url: e.target.value, image_path: "" })}
                 />
@@ -221,6 +254,7 @@ export default function EventsAdminPage() {
                 </div>
               )}
             </div>
+
             <div className="space-y-1 sm:col-span-2">
               <Label htmlFor="desc">Deskripsi</Label>
               <Textarea
@@ -275,7 +309,7 @@ export default function EventsAdminPage() {
           <CardContent className="space-y-3">
             {upcoming.length === 0 && <p className="text-neutral-600">Tidak ada kegiatan mendatang.</p>}
             {upcoming.map((ev) => (
-              <EventRow key={ev.id} ev={ev} onDelete={() => deleteEvent(ev.id, ev.image_path)} />
+              <EventLine key={ev.id} ev={ev} onDelete={() => deleteEvent(ev.id, ev.image_path)} />
             ))}
           </CardContent>
         </Card>
@@ -287,7 +321,7 @@ export default function EventsAdminPage() {
           <CardContent className="space-y-3">
             {past.length === 0 && <p className="text-neutral-600">Belum ada kegiatan lampau.</p>}
             {past.map((ev) => (
-              <EventRow key={ev.id} ev={ev} onDelete={() => deleteEvent(ev.id, ev.image_path)} />
+              <EventLine key={ev.id} ev={ev} onDelete={() => deleteEvent(ev.id, ev.image_path)} />
             ))}
           </CardContent>
         </Card>
@@ -296,16 +330,20 @@ export default function EventsAdminPage() {
   )
 }
 
-function EventRow({ ev, onDelete }: { ev: EventItem; onDelete: () => void }) {
-  const d = new Date(ev.starts_at)
-  const dateStr = d.toLocaleString(undefined, {
-    weekday: "short",
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+function EventLine({ ev, onDelete }: { ev: EventRowType; onDelete: () => void }) {
+  const t = new Date(ev.starts_at)
+  const isValid = Number.isFinite(t.getTime())
+  const dateStr = isValid
+    ? t.toLocaleString(undefined, {
+        weekday: "short",
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "Tanggal tidak valid"
+
   return (
     <div className="flex items-start justify-between gap-3 rounded-md border p-3">
       <div className="min-w-0">
@@ -313,6 +351,11 @@ function EventRow({ ev, onDelete }: { ev: EventItem; onDelete: () => void }) {
         <div className="mt-1 text-sm text-neutral-700">{dateStr}</div>
         <div className="text-sm text-neutral-700">{ev.location}</div>
         {ev.description && <p className="mt-2 text-sm text-neutral-600">{ev.description}</p>}
+        {ev.image_url && (
+          <div className="mt-2 overflow-hidden rounded-md border">
+            <img src={ev.image_url || "/placeholder.svg"} alt="Gambar kegiatan" className="h-28 w-full object-cover" />
+          </div>
+        )}
       </div>
       <Button variant="destructive" size="icon" onClick={onDelete} aria-label="Hapus kegiatan">
         <Trash2 className="h-4 w-4" />
