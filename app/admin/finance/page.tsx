@@ -1,13 +1,13 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Trash2, Plus, Pencil, X, Save } from "lucide-react"
+import { Trash2, Plus, Pencil, X, Save, Tag } from "lucide-react"
 import { useRouter } from "next/navigation"
 
 type FinanceType = "income" | "expense"
@@ -19,6 +19,10 @@ type FinanceItem = {
   note?: string
   date: string // ISO
 }
+
+const CATEGORIES_KEY = "masjid_finance_categories"
+// Initial defaults include the requested "Keuangan Masjid" and "Qurban"
+const DEFAULT_CATEGORIES = ["Keuangan Masjid", "Qurban", "Infak", "Operasional", "Pendidikan"]
 
 export default function FinanceAdminPage() {
   const router = useRouter()
@@ -60,8 +64,17 @@ export default function FinanceAdminPage() {
     date: new Date().toISOString().slice(0, 10),
   })
 
+  // categories state
+  const [categories, setCategories] = useState<string[]>([])
+  const [newCategory, setNewCategory] = useState("")
+  const customCatInputRef = useRef<HTMLInputElement | null>(null)
+  const editCustomCatInputRef = useRef<HTMLInputElement | null>(null)
+
+  // Load items and categories
   useEffect(() => {
     if (typeof window === "undefined") return
+
+    // Load items
     const stored = localStorage.getItem("masjid_finance")
     if (stored) {
       try {
@@ -70,13 +83,39 @@ export default function FinanceAdminPage() {
         setItems([])
       }
     }
+
+    // Load categories
+    const catRaw = localStorage.getItem(CATEGORIES_KEY)
+    if (catRaw) {
+      try {
+        const parsed = JSON.parse(catRaw) as string[]
+        // ensure defaults are present at least once
+        const merged = Array.from(new Set([...DEFAULT_CATEGORIES, ...parsed]))
+        setCategories(merged)
+        localStorage.setItem(CATEGORIES_KEY, JSON.stringify(merged))
+      } catch {
+        setCategories(DEFAULT_CATEGORIES)
+        localStorage.setItem(CATEGORIES_KEY, JSON.stringify(DEFAULT_CATEGORIES))
+      }
+    } else {
+      setCategories(DEFAULT_CATEGORIES)
+      localStorage.setItem(CATEGORIES_KEY, JSON.stringify(DEFAULT_CATEGORIES))
+    }
   }, [])
 
+  // Persist items
   useEffect(() => {
     if (typeof window !== "undefined") {
       localStorage.setItem("masjid_finance", JSON.stringify(items))
     }
   }, [items])
+
+  // Persist categories
+  useEffect(() => {
+    if (typeof window !== "undefined" && categories.length) {
+      localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories))
+    }
+  }, [categories])
 
   function addItem() {
     const amountNum = Number.parseFloat(form.amount)
@@ -135,6 +174,35 @@ export default function FinanceAdminPage() {
     return { income, expense, balance }
   }, [items])
 
+  function onQuickPickCategory(cat: string) {
+    setForm((f) => ({ ...f, category: cat }))
+  }
+
+  function onQuickPickCategoryEdit(cat: string) {
+    setEditForm((f) => ({ ...f, category: cat }))
+  }
+
+  function addCategory() {
+    const name = newCategory.trim()
+    if (!name) return
+    if (categories.includes(name)) {
+      setNewCategory("")
+      return
+    }
+    setCategories((prev) => [...prev, name])
+    setNewCategory("")
+  }
+
+  function deleteCategory(name: string) {
+    // Prevent deleting if used by any item
+    const used = items.some((i) => i.category === name)
+    if (used) {
+      alert("Kategori sedang digunakan di transaksi. Hapus atau ubah transaksi terlebih dahulu.")
+      return
+    }
+    setCategories((prev) => prev.filter((c) => c !== name))
+  }
+
   return (
     <div className="min-h-screen bg-white">
       <div className="mx-auto max-w-6xl px-4 py-8 sm:py-12">
@@ -157,6 +225,7 @@ export default function FinanceAdminPage() {
                 </SelectContent>
               </Select>
             </div>
+
             <div className="space-y-1">
               <Label htmlFor="amount">Jumlah</Label>
               <Input
@@ -168,15 +237,34 @@ export default function FinanceAdminPage() {
                 onChange={(e) => setForm({ ...form, amount: e.target.value })}
               />
             </div>
+
             <div className="space-y-1">
-              <Label htmlFor="category">Kategori</Label>
+              <Label>Kategori Cepat</Label>
+              <Select onValueChange={(v) => onQuickPickCategory(v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih kategori cepat" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="category">Kategori (ketik manual bila perlu)</Label>
               <Input
                 id="category"
-                placeholder="Infak, Operasional, dll."
+                placeholder="Infak, Keuangan Masjid, Qurban, dll."
                 value={form.category}
                 onChange={(e) => setForm({ ...form, category: e.target.value })}
+                ref={customCatInputRef}
               />
             </div>
+
             <div className="space-y-1">
               <Label htmlFor="date">Tanggal</Label>
               <Input
@@ -186,6 +274,7 @@ export default function FinanceAdminPage() {
                 onChange={(e) => setForm({ ...form, date: e.target.value })}
               />
             </div>
+
             <div className="space-y-1 sm:col-span-2">
               <Label htmlFor="note">Catatan</Label>
               <Textarea
@@ -195,6 +284,7 @@ export default function FinanceAdminPage() {
                 onChange={(e) => setForm({ ...form, note: e.target.value })}
               />
             </div>
+
             <div className="sm:col-span-2">
               <Button onClick={addItem} className="bg-neutral-900 hover:bg-black">
                 <Plus className="mr-2 h-4 w-4" />
@@ -233,6 +323,56 @@ export default function FinanceAdminPage() {
           </Card>
         </div>
 
+        {/* Category Manager */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-neutral-900">
+              <Tag className="h-4 w-4" />
+              Kelola Kategori
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="flex-1">
+                <Label htmlFor="new-category" className="sr-only">
+                  Kategori baru
+                </Label>
+                <Input
+                  id="new-category"
+                  placeholder="Tambah kategori baru (mis. Beasiswa, Renovasi)"
+                  value={newCategory}
+                  onChange={(e) => setNewCategory(e.target.value)}
+                />
+              </div>
+              <Button onClick={addCategory} className="bg-neutral-900 hover:bg-black">
+                <Plus className="mr-2 h-4 w-4" />
+                Tambah Kategori
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
+              {categories.map((c) => {
+                const inUse = items.some((i) => i.category === c)
+                return (
+                  <div key={c} className="flex items-center justify-between rounded-md border p-2">
+                    <span className="truncate">{c}</span>
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      onClick={() => deleteCategory(c)}
+                      title={inUse ? "Kategori sedang digunakan" : "Hapus kategori"}
+                      disabled={inUse}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Items List */}
         <Card className="mt-6">
           <CardHeader>
             <CardTitle className="text-neutral-900">Daftar Transaksi</CardTitle>
@@ -258,6 +398,7 @@ export default function FinanceAdminPage() {
                         </SelectContent>
                       </Select>
                     </div>
+
                     <div className="space-y-1">
                       <Label>Jumlah</Label>
                       <Input
@@ -267,13 +408,32 @@ export default function FinanceAdminPage() {
                         onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
                       />
                     </div>
+
                     <div className="space-y-1">
-                      <Label>Kategori</Label>
+                      <Label>Kategori Cepat</Label>
+                      <Select onValueChange={(v) => onQuickPickCategoryEdit(v)}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Pilih kategori cepat" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {categories.map((c) => (
+                            <SelectItem key={c} value={c}>
+                              {c}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label>Kategori (ketik manual bila perlu)</Label>
                       <Input
                         value={editForm.category}
                         onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
+                        ref={editCustomCatInputRef}
                       />
                     </div>
+
                     <div className="space-y-1">
                       <Label>Tanggal</Label>
                       <Input
@@ -282,6 +442,7 @@ export default function FinanceAdminPage() {
                         onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
                       />
                     </div>
+
                     <div className="space-y-1 sm:col-span-5">
                       <Label>Catatan</Label>
                       <Textarea
@@ -289,6 +450,7 @@ export default function FinanceAdminPage() {
                         onChange={(e) => setEditForm({ ...editForm, note: e.target.value })}
                       />
                     </div>
+
                     <div className="flex gap-2 sm:col-span-5">
                       <Button onClick={() => saveEdit(it.id)} className="bg-neutral-900 hover:bg-black">
                         <Save className="mr-2 h-4 w-4" />

@@ -12,7 +12,7 @@ type NoteItem = {
   id: string
   title: string
   content: string
-  date: string // ISO
+  created_at: string
 }
 
 export default function KnowledgeAdminPage() {
@@ -20,33 +20,40 @@ export default function KnowledgeAdminPage() {
   const [form, setForm] = useState<{ title: string; content: string }>({ title: "", content: "" })
 
   useEffect(() => {
-    if (typeof window === "undefined") return
-    const stored = localStorage.getItem("masjid_notes")
-    if (stored) {
-      try {
-        setNotes(JSON.parse(stored) as NoteItem[])
-      } catch {
-        setNotes([])
+    ;(async () => {
+      const res = await fetch("/api/notes")
+      if (res.ok) {
+        const j = await res.json()
+        setNotes(j?.data || [])
       }
-    }
+    })()
   }, [])
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("masjid_notes", JSON.stringify(notes))
-    }
-  }, [notes])
-
-  function addNote() {
-    const title = form.title.trim() || "Catatan"
+  async function addNote() {
+    const title = form.title.trim()
     const content = form.content.trim()
     if (!content) return
-    setNotes((prev) => [{ id: crypto.randomUUID(), title, content, date: new Date().toISOString() }, ...prev])
-    setForm({ title: "", content: "" })
+    const res = await fetch("/api/notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, content }),
+    })
+    if (res.ok) {
+      const { data } = await res.json()
+      setNotes((prev) => [data, ...prev])
+      setForm({ title: "", content: "" })
+    }
   }
 
-  function deleteNote(id: string) {
-    setNotes((prev) => prev.filter((n) => n.id !== id))
+  async function deleteNote(id: string) {
+    const res = await fetch("/api/notes", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    })
+    if (res.ok) {
+      setNotes((prev) => prev.filter((n) => n.id !== id))
+    }
   }
 
   return (
@@ -94,7 +101,7 @@ export default function KnowledgeAdminPage() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="truncate text-base font-semibold text-neutral-900">{n.title}</div>
-                  <div className="text-xs text-neutral-600">{new Date(n.date).toLocaleString()}</div>
+                  <div className="text-xs text-neutral-600">{new Date(n.created_at).toLocaleString()}</div>
                 </div>
                 <Button variant="destructive" size="icon" onClick={() => deleteNote(n.id)} aria-label="Hapus catatan">
                   <Trash2 className="h-4 w-4" />

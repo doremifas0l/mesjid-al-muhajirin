@@ -12,14 +12,30 @@ import { Trash2, Plus } from "lucide-react"
 type EventItem = {
   id: string
   title: string
-  date: string // ISO date
-  time: string // HH:mm
+  starts_at: string // ISO
   location: string
   description: string
-  imageUrl?: string // can be Data URL from upload
+  image_url?: string
+  image_path?: string
 }
 
 type Recurrence = "one-time" | "daily" | "weekly" | "monthly"
+
+async function uploadImage(file: File) {
+  const fd = new FormData()
+  fd.append("file", file)
+  fd.append("folder", "events")
+  const res = await fetch("/api/storage/upload", { method: "POST", body: fd })
+  if (!res.ok) {
+    let msg = "Upload failed"
+    try {
+      const j = await res.json()
+      if (j?.error) msg = j.error
+    } catch {}
+    throw new Error(msg)
+  }
+  return (await res.json()) as { path: string; publicUrl: string }
+}
 
 export default function EventsAdminPage() {
   const [events, setEvents] = useState<EventItem[]>([])
@@ -29,7 +45,8 @@ export default function EventsAdminPage() {
     time: string
     location: string
     description: string
-    imageUrl: string
+    image_url: string
+    image_path: string
     recurrence: Recurrence
     count: number
   }>({
@@ -38,87 +55,102 @@ export default function EventsAdminPage() {
     time: "07:00",
     location: "Mesjid Al Muhajirin",
     description: "",
-    imageUrl: "",
+    image_url: "",
+    image_path: "",
     recurrence: "one-time",
     count: 1,
   })
 
   useEffect(() => {
-    if (typeof window === "undefined") return
-    const stored = localStorage.getItem("masjid_events")
-    if (stored) {
-      try {
-        setEvents(JSON.parse(stored) as EventItem[])
-      } catch {
-        setEvents([])
+    ;(async () => {
+      const res = await fetch("/api/events")
+      if (res.ok) {
+        const j = await res.json()
+        setEvents(j?.data || [])
       }
-    }
+    })()
   }, [])
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("masjid_events", JSON.stringify(events))
+  async function handleImageUpload(file: File) {
+    try {
+      const { path, publicUrl } = await uploadImage(file)
+      setForm((f) => ({ ...f, image_url: publicUrl, image_path: path }))
+    } catch (e: any) {
+      console.error(e)
+      alert(`Gagal mengunggah gambar: ${e?.message || "Unknown error"}`)
     }
-  }, [events])
-
-  function handleImageUpload(file: File) {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const dataUrl = reader.result as string
-      setForm((f) => ({ ...f, imageUrl: dataUrl }))
-    }
-    reader.readAsDataURL(file)
   }
 
-  function addEvent() {
+  async function addEvent() {
     const count = Math.max(1, form.count || 1)
     const startDate = new Date(`${form.date}T${form.time || "00:00"}`)
-    const generated: EventItem[] = []
-
+    const toInsert: Omit<EventItem, "id">[] = []
     for (let i = 0; i < count; i++) {
       const d = new Date(startDate)
       if (form.recurrence === "daily" && i > 0) d.setDate(startDate.getDate() + i)
       if (form.recurrence === "weekly" && i > 0) d.setDate(startDate.getDate() + 7 * i)
       if (form.recurrence === "monthly" && i > 0) d.setMonth(startDate.getMonth() + i)
-
-      generated.push({
-        id: crypto.randomUUID(),
+      toInsert.push({
         title: form.title.trim() || "Kegiatan Masjid",
-        date: d.toISOString(),
-        time: form.time || "00:00",
+        starts_at: d.toISOString(),
         location: form.location.trim() || "Mesjid Al Muhajirin",
         description: form.description.trim(),
-        imageUrl: form.imageUrl.trim() || undefined,
-      })
+        image_url: form.image_url || undefined,
+        image_path: form.image_path || undefined,
+      } as any)
     }
-
-    setEvents((prev) => [...generated, ...prev])
+    for (const ev of toInsert) {
+      const res = await fetch("/api/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(ev),
+      })
+      if (res.ok) {
+        const { data } = await res.json()
+        setEvents((prev) => [data, ...prev])
+      }
+    }
     setForm((f) => ({
       ...f,
       title: "",
       location: "Mesjid Al Muhajirin",
       description: "",
-      imageUrl: "",
+      image_url: "",
+      image_path: "",
     }))
   }
 
-  function deleteEvent(id: string) {
-    setEvents((prev) => prev.filter((e) => e.id !== id))
+  async function deleteEvent(id: string, image_path?: string) {
+    const res = await fetch("/api/events", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    })
+    if (res.ok) {
+      setEvents((prev) => prev.filter((e) => e.id !== id))
+      if (image_path) {
+        fetch("/api/storage/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: image_path }),
+        }).catch(() => {})
+      }
+    }
   }
 
   const now = Date.now()
   const upcoming = useMemo(
     () =>
       [...events]
-        .filter((e) => new Date(e.date).getTime() >= now)
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
+        .filter((e) => new Date(e.starts_at).getTime() >= now)
+        .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime()),
     [events, now],
   )
   const past = useMemo(
     () =>
       [...events]
-        .filter((e) => new Date(e.date).getTime() < now)
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+        .filter((e) => new Date(e.starts_at).getTime() < now)
+        .sort((a, b) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime()),
     [events, now],
   )
 
@@ -172,18 +204,17 @@ export default function EventsAdminPage() {
                     if (f) handleImageUpload(f)
                   }}
                 />
-                <span className="text-xs text-neutral-500">Atau tempel URL:</span>
+                <span className="text-xs text-neutral-500">atau tempel URL (opsional):</span>
                 <Input
-                  placeholder="https://contoh.com/foto.jpg atau /images/foto.jpg"
-                  value={form.imageUrl}
-                  onChange={(e) => setForm({ ...form, imageUrl: e.target.value })}
+                  placeholder="https://contoh.com/foto.jpg"
+                  value={form.image_url}
+                  onChange={(e) => setForm({ ...form, image_url: e.target.value, image_path: "" })}
                 />
               </div>
-              {form.imageUrl && (
+              {form.image_url && (
                 <div className="mt-2 overflow-hidden rounded-md border">
-                  {/* Show preview using plain img to support Data URLs */}
                   <img
-                    src={form.imageUrl || "/placeholder.svg"}
+                    src={form.image_url || "/placeholder.svg"}
                     alt="Pratinjau gambar kegiatan"
                     className="h-40 w-full object-cover"
                   />
@@ -244,7 +275,7 @@ export default function EventsAdminPage() {
           <CardContent className="space-y-3">
             {upcoming.length === 0 && <p className="text-neutral-600">Tidak ada kegiatan mendatang.</p>}
             {upcoming.map((ev) => (
-              <EventRow key={ev.id} ev={ev} onDelete={() => deleteEvent(ev.id)} />
+              <EventRow key={ev.id} ev={ev} onDelete={() => deleteEvent(ev.id, ev.image_path)} />
             ))}
           </CardContent>
         </Card>
@@ -256,7 +287,7 @@ export default function EventsAdminPage() {
           <CardContent className="space-y-3">
             {past.length === 0 && <p className="text-neutral-600">Belum ada kegiatan lampau.</p>}
             {past.map((ev) => (
-              <EventRow key={ev.id} ev={ev} onDelete={() => deleteEvent(ev.id)} />
+              <EventRow key={ev.id} ev={ev} onDelete={() => deleteEvent(ev.id, ev.image_path)} />
             ))}
           </CardContent>
         </Card>
@@ -266,7 +297,7 @@ export default function EventsAdminPage() {
 }
 
 function EventRow({ ev, onDelete }: { ev: EventItem; onDelete: () => void }) {
-  const d = new Date(ev.date)
+  const d = new Date(ev.starts_at)
   const dateStr = d.toLocaleString(undefined, {
     weekday: "short",
     year: "numeric",
@@ -280,7 +311,7 @@ function EventRow({ ev, onDelete }: { ev: EventItem; onDelete: () => void }) {
       <div className="min-w-0">
         <div className="font-medium text-neutral-900">{ev.title}</div>
         <div className="mt-1 text-sm text-neutral-700">{dateStr}</div>
-        <div className="text-sm text-neutral-700">{ev.location || "Mesjid Al Muhajirin"}</div>
+        <div className="text-sm text-neutral-700">{ev.location}</div>
         {ev.description && <p className="mt-2 text-sm text-neutral-600">{ev.description}</p>}
       </div>
       <Button variant="destructive" size="icon" onClick={onDelete} aria-label="Hapus kegiatan">

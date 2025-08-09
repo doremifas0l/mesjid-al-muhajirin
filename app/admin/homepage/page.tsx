@@ -8,180 +8,221 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { ImagePlus, Trash2, ArrowUp, ArrowDown, Save, Plus } from "lucide-react"
 
-const HERO_KEY = "masjid_hero_images"
-const FEATURED_VIDEO_KEY = "masjid_featured_video"
-const CONTENT_KEY = "masjid_home_content"
-const DEFAULT_VIDEO = "https://www.youtube.com/watch?v=oJyWJ8d4TUs"
+type HeroImage = { id?: string; url: string; path: string; position: number }
 
 type HomeContent = {
-  siteTitle: string
-  heroTag: string
+  site_title: string
+  hero_tag: string
   announcement: string
-  aboutTitle: string
-  aboutBody: string
-  aboutBullets: string[]
-  eventsTitle: string
-  eventsSubtitle: string
-  youtubeTitle: string
-  youtubeSubtitle: string
+  about_title: string
+  about_body: string
+  about_bullets: string[]
+  events_title: string
+  events_subtitle: string
+  youtube_title: string
+  youtube_subtitle: string
+  featured_video_url: string
 }
 
-const defaultContent: HomeContent = {
-  siteTitle: "Mesjid Al-Muhajirin Sarimas",
-  heroTag: "AI-Powered Community Hub",
-  announcement: "Selamat datang di Mesjid Al-Muhajirin Sarimas. Mari makmurkan masjid bersama!",
-  aboutTitle: "Tentang Masjid",
-  aboutBody:
-    "Mesjid Al-Muhajirin Sarimas adalah pusat kegiatan ibadah dan sosial masyarakat Sarimas. Dengan bantuan AI, kami berupaya menghadirkan informasi kegiatan, pelayanan, dan interaksi yang lebih cepat dan mudah.",
-  aboutBullets: [
-    "Informasi jadwal shalat dan kajian",
-    "Pendaftaran kelas dan kegiatan sosial",
-    "Chatbot untuk tanya jawab cepat",
-  ],
-  eventsTitle: "Kegiatan Mendatang",
-  eventsSubtitle: "Jangan lewatkan agenda komunitas kita.",
-  youtubeTitle: "YouTube",
-  youtubeSubtitle: "Tonton ceramah dan kegiatan terbaru.",
+const DEFAULT_VIDEO = "https://www.youtube.com/watch?v=oJyWJ8d4TUs"
+
+async function uploadToStorage(file: File) {
+  const fd = new FormData()
+  fd.append("file", file)
+  fd.append("folder", "homepage")
+  const res = await fetch("/api/storage/upload", { method: "POST", body: fd })
+  if (!res.ok) throw new Error((await res.json()).error || "Upload failed")
+  return (await res.json()) as { path: string; publicUrl: string }
 }
 
 export default function AdminHomepagePage() {
-  const [images, setImages] = useState<string[]>([])
-  const [videoUrl, setVideoUrl] = useState<string>("")
-  const [content, setContent] = useState<HomeContent>(defaultContent)
+  const [images, setImages] = useState<HeroImage[]>([])
+  const [content, setContent] = useState<HomeContent>({
+    site_title: "Mesjid Al-Muhajirin Sarimas",
+    hero_tag: "AI-Powered Community Hub",
+    announcement: "Selamat datang di Mesjid Al-Muhajirin Sarimas. Mari makmurkan masjid bersama!",
+    about_title: "Tentang Masjid",
+    about_body:
+      "Mesjid Al-Muhajirin Sarimas adalah pusat kegiatan ibadah dan sosial masyarakat Sarimas. Dengan bantuan AI, kami berupaya menghadirkan informasi kegiatan, pelayanan, dan interaksi yang lebih cepat dan mudah.",
+    about_bullets: [
+      "Informasi jadwal shalat dan kajian",
+      "Pendaftaran kelas dan kegiatan sosial",
+      "Chatbot untuk tanya jawab cepat",
+    ],
+    events_title: "Kegiatan Mendatang",
+    events_subtitle: "Jangan lewatkan agenda komunitas kita.",
+    youtube_title: "YouTube",
+    youtube_subtitle: "Tonton ceramah dan kegiatan terbaru.",
+    featured_video_url: DEFAULT_VIDEO,
+  })
   const [newBullet, setNewBullet] = useState("")
 
-  // Load initial state
   useEffect(() => {
-    if (typeof window === "undefined") return
-    // Images
-    const imgs = localStorage.getItem(HERO_KEY)
-    if (imgs) {
-      try {
-        const parsed = JSON.parse(imgs) as string[]
-        setImages(Array.isArray(parsed) ? parsed.slice(0, 5) : [])
-      } catch {
-        setImages([])
-      }
-    }
-    // Video
-    const vid = localStorage.getItem(FEATURED_VIDEO_KEY)
-    if (vid && vid.trim().length > 0) {
-      setVideoUrl(vid)
-    } else {
-      setVideoUrl(DEFAULT_VIDEO)
-    }
-    // Content (with migration from old announcement if present)
-    const rawContent = localStorage.getItem(CONTENT_KEY)
-    if (rawContent) {
-      try {
-        const parsed = JSON.parse(rawContent) as Partial<HomeContent>
-        setContent({ ...defaultContent, ...parsed })
-      } catch {
-        setContent(defaultContent)
-      }
-    } else {
-      const legacyAnn = localStorage.getItem("masjid_announcement")
-      setContent({
-        ...defaultContent,
-        announcement: legacyAnn && legacyAnn.trim().length > 0 ? legacyAnn : defaultContent.announcement,
-      })
-    }
-  }, [])
-
-  // Persist images immediately
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem(HERO_KEY, JSON.stringify(images.slice(0, 5)))
-    }
-  }, [images])
-
-  function handleAddFiles(files: FileList | null) {
-    if (!files || files.length === 0) return
-    const current = images.slice()
-    const remaining = Math.max(0, 5 - current.length)
-    const pick = Array.from(files).slice(0, remaining)
-    if (pick.length === 0) return
-    let count = 0
-    pick.forEach((file) => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        const dataUrl = reader.result as string
-        current.push(dataUrl)
-        count++
-        if (count === pick.length) {
-          setImages(current.slice(0, 5))
+    ;(async () => {
+      // Load content
+      const cRes = await fetch("/api/homepage/content")
+      if (cRes.ok) {
+        const j = await cRes.json()
+        if (j?.data) {
+          const d = j.data
+          setContent((prev) => ({
+            ...prev,
+            site_title: d.site_title ?? prev.site_title,
+            hero_tag: d.hero_tag ?? prev.hero_tag,
+            announcement: d.announcement ?? prev.announcement,
+            about_title: d.about_title ?? prev.about_title,
+            about_body: d.about_body ?? prev.about_body,
+            about_bullets: Array.isArray(d.about_bullets) ? d.about_bullets : prev.about_bullets,
+            events_title: d.events_title ?? prev.events_title,
+            events_subtitle: d.events_subtitle ?? prev.events_subtitle,
+            youtube_title: d.youtube_title ?? prev.youtube_title,
+            youtube_subtitle: d.youtube_subtitle ?? prev.youtube_subtitle,
+            featured_video_url: d.featured_video_url ?? DEFAULT_VIDEO,
+          }))
         }
       }
-      reader.readAsDataURL(file)
-    })
+      // Load images
+      const iRes = await fetch("/api/homepage/images")
+      if (iRes.ok) {
+        const j = await iRes.json()
+        const list = (j?.data as any[]) || []
+        setImages(list.map((r) => ({ id: r.id, url: r.url, path: r.path, position: r.position ?? 0 })).slice(0, 5))
+      }
+    })()
+  }, [])
+
+  async function handleAddFiles(files: FileList | null) {
+    if (!files || files.length === 0) return
+    const remaining = Math.max(0, 5 - images.length)
+    const pick = Array.from(files).slice(0, remaining)
+    if (pick.length === 0) return
+    const uploaded: HeroImage[] = []
+    for (const file of pick) {
+      try {
+        const { path, publicUrl } = await uploadToStorage(file)
+        // Save DB row
+        const res = await fetch("/api/homepage/images", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path, url: publicUrl, position: images.length + uploaded.length }),
+        })
+        if (!res.ok) throw new Error((await res.json()).error || "Insert failed")
+        const { data } = await res.json()
+        uploaded.push({ id: data.id, url: data.url, path: data.path, position: data.position ?? 0 })
+      } catch (e) {
+        console.error(e)
+        alert("Gagal mengunggah sebagian file.")
+      }
+    }
+    setImages((prev) => [...prev, ...uploaded].slice(0, 5))
   }
 
-  function removeAt(i: number) {
+  async function removeAt(i: number) {
+    const target = images[i]
+    if (!target) return
+    // Delete DB row
+    await fetch("/api/homepage/images", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: target.id }),
+    })
+    // Delete storage object (best-effort)
+    await fetch("/api/storage/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: target.path }),
+    }).catch(() => {})
     setImages((arr) => arr.filter((_, idx) => idx !== i))
   }
 
-  function moveUp(i: number) {
+  async function moveUp(i: number) {
     if (i <= 0) return
-    setImages((arr) => {
-      const next = arr.slice()
-      ;[next[i - 1], next[i]] = [next[i], next[i - 1]]
-      return next
-    })
+    const next = images.slice()
+    ;[next[i - 1], next[i]] = [next[i], next[i - 1]]
+    setImages(next)
+    await persistPositions(next)
   }
 
-  function moveDown(i: number) {
-    setImages((arr) => {
-      if (i >= arr.length - 1) return arr
-      const next = arr.slice()
-      ;[next[i + 1], next[i]] = [next[i], next[i + 1]]
-      return next
-    })
+  async function moveDown(i: number) {
+    if (i >= images.length - 1) return
+    const next = images.slice()
+    ;[next[i + 1], next[i]] = [next[i], next[i + 1]]
+    setImages(next)
+    await persistPositions(next)
   }
 
-  function saveVideo() {
-    if (typeof window === "undefined") return
-    localStorage.setItem(FEATURED_VIDEO_KEY, (videoUrl || "").trim())
+  async function persistPositions(list: HeroImage[]) {
+    await Promise.all(
+      list.map((img, idx) =>
+        fetch("/api/homepage/images", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: img.id, position: idx }),
+        }),
+      ),
+    )
+  }
+
+  async function saveVideo() {
+    await fetch("/api/homepage/content", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ featured_video_url: content.featured_video_url || DEFAULT_VIDEO }),
+    })
     alert("URL video tersimpan.")
   }
 
-  function saveContent() {
-    if (typeof window === "undefined") return
-    localStorage.setItem(CONTENT_KEY, JSON.stringify(content))
-    // Keep legacy announcement in sync for older code paths
-    localStorage.setItem("masjid_announcement", content.announcement || "")
+  async function saveContent() {
+    const payload = {
+      site_title: content.site_title,
+      hero_tag: content.hero_tag,
+      announcement: content.announcement,
+      about_title: content.about_title,
+      about_body: content.about_body,
+      about_bullets: content.about_bullets,
+      events_title: content.events_title,
+      events_subtitle: content.events_subtitle,
+      youtube_title: content.youtube_title,
+      youtube_subtitle: content.youtube_subtitle,
+    }
+    await fetch("/api/homepage/content", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
     alert("Konten beranda tersimpan.")
   }
 
   function addBullet() {
     const val = newBullet.trim()
     if (!val) return
-    setContent((c) => ({ ...c, aboutBullets: [...c.aboutBullets, val] }))
+    setContent((c) => ({ ...c, about_bullets: [...c.about_bullets, val] }))
     setNewBullet("")
   }
 
   function removeBullet(i: number) {
-    setContent((c) => ({ ...c, aboutBullets: c.aboutBullets.filter((_, idx) => idx !== i) }))
+    setContent((c) => ({ ...c, about_bullets: c.about_bullets.filter((_, idx) => idx !== i) }))
   }
 
   function moveBulletUp(i: number) {
     if (i <= 0) return
     setContent((c) => {
-      const arr = c.aboutBullets.slice()
+      const arr = c.about_bullets.slice()
       ;[arr[i - 1], arr[i]] = [arr[i], arr[i - 1]]
-      return { ...c, aboutBullets: arr }
+      return { ...c, about_bullets: arr }
     })
   }
 
   function moveBulletDown(i: number) {
     setContent((c) => {
-      if (i >= c.aboutBullets.length - 1) return c
-      const arr = c.aboutBullets.slice()
+      if (i >= c.about_bullets.length - 1) return c
+      const arr = c.about_bullets.slice()
       ;[arr[i + 1], arr[i]] = [arr[i], arr[i + 1]]
-      return { ...c, aboutBullets: arr }
+      return { ...c, about_bullets: arr }
     })
   }
 
-  const bulletLimitReached = useMemo(() => content.aboutBullets.length >= 10, [content.aboutBullets.length])
+  const bulletLimitReached = useMemo(() => content.about_bullets.length >= 10, [content.about_bullets.length])
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:py-12">
@@ -212,9 +253,13 @@ export default function AdminHomepagePage() {
             <p className="text-neutral-600">Belum ada gambar. Tambahkan hingga 5 gambar untuk slideshow beranda.</p>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
-              {images.map((src, i) => (
-                <div key={i} className="overflow-hidden rounded-lg border">
-                  <img src={src || "/placeholder.svg"} alt={`Gambar ${i + 1}`} className="h-40 w-full object-cover" />
+              {images.map((img, i) => (
+                <div key={img.id ?? i} className="overflow-hidden rounded-lg border">
+                  <img
+                    src={img.url || "/placeholder.svg"}
+                    alt={`Gambar ${i + 1}`}
+                    className="h-40 w-full object-cover"
+                  />
                   <div className="flex items-center justify-between gap-2 border-t p-2">
                     <div className="flex gap-1">
                       <Button variant="outline" size="icon" onClick={() => moveUp(i)} aria-label="Naikkan">
@@ -244,15 +289,19 @@ export default function AdminHomepagePage() {
           <Input
             id="yturl"
             placeholder="https://www.youtube.com/watch?v=..."
-            value={videoUrl}
-            onChange={(e) => setVideoUrl(e.target.value)}
+            value={content.featured_video_url}
+            onChange={(e) => setContent((c) => ({ ...c, featured_video_url: e.target.value }))}
           />
           <div className="flex items-center gap-2">
             <Button onClick={saveVideo} className="bg-neutral-900 hover:bg-black">
               <Save className="mr-2 h-4 w-4" />
               Simpan URL Video
             </Button>
-            <Button variant="outline" onClick={() => setVideoUrl(DEFAULT_VIDEO)} title="Setel ke default">
+            <Button
+              variant="outline"
+              onClick={() => setContent((c) => ({ ...c, featured_video_url: DEFAULT_VIDEO }))}
+              title="Setel ke default"
+            >
               Gunakan Default
             </Button>
           </div>
@@ -270,16 +319,16 @@ export default function AdminHomepagePage() {
               <Label htmlFor="siteTitle">Judul Situs</Label>
               <Input
                 id="siteTitle"
-                value={content.siteTitle}
-                onChange={(e) => setContent((c) => ({ ...c, siteTitle: e.target.value }))}
+                value={content.site_title}
+                onChange={(e) => setContent((c) => ({ ...c, site_title: e.target.value }))}
               />
             </div>
             <div className="space-y-1">
               <Label htmlFor="heroTag">Tagline (badge kecil)</Label>
               <Input
                 id="heroTag"
-                value={content.heroTag}
-                onChange={(e) => setContent((c) => ({ ...c, heroTag: e.target.value }))}
+                value={content.hero_tag}
+                onChange={(e) => setContent((c) => ({ ...c, hero_tag: e.target.value }))}
               />
             </div>
             <div className="space-y-1 sm:col-span-2">
@@ -297,16 +346,16 @@ export default function AdminHomepagePage() {
               <Label htmlFor="aboutTitle">Judul "Tentang"</Label>
               <Input
                 id="aboutTitle"
-                value={content.aboutTitle}
-                onChange={(e) => setContent((c) => ({ ...c, aboutTitle: e.target.value }))}
+                value={content.about_title}
+                onChange={(e) => setContent((c) => ({ ...c, about_title: e.target.value }))}
               />
             </div>
             <div className="space-y-1 sm:col-span-2">
               <Label htmlFor="aboutBody">Isi "Tentang"</Label>
               <Textarea
                 id="aboutBody"
-                value={content.aboutBody}
-                onChange={(e) => setContent((c) => ({ ...c, aboutBody: e.target.value }))}
+                value={content.about_body}
+                onChange={(e) => setContent((c) => ({ ...c, about_body: e.target.value }))}
               />
             </div>
 
@@ -324,11 +373,11 @@ export default function AdminHomepagePage() {
                   Tambah
                 </Button>
               </div>
-              {content.aboutBullets.length === 0 ? (
+              {content.about_bullets.length === 0 ? (
                 <p className="text-sm text-neutral-600">Belum ada poin.</p>
               ) : (
                 <div className="grid gap-2">
-                  {content.aboutBullets.map((b, i) => (
+                  {content.about_bullets.map((b, i) => (
                     <div key={i} className="flex items-center justify-between rounded-md border p-2">
                       <div className="min-w-0 pr-2">
                         <div className="truncate text-sm text-neutral-800">{b}</div>
@@ -356,32 +405,32 @@ export default function AdminHomepagePage() {
               <Label htmlFor="eventsTitle">Judul Kegiatan</Label>
               <Input
                 id="eventsTitle"
-                value={content.eventsTitle}
-                onChange={(e) => setContent((c) => ({ ...c, eventsTitle: e.target.value }))}
+                value={content.events_title}
+                onChange={(e) => setContent((c) => ({ ...c, events_title: e.target.value }))}
               />
             </div>
             <div className="space-y-1">
               <Label htmlFor="eventsSubtitle">Subjudul Kegiatan</Label>
               <Input
                 id="eventsSubtitle"
-                value={content.eventsSubtitle}
-                onChange={(e) => setContent((c) => ({ ...c, eventsSubtitle: e.target.value }))}
+                value={content.events_subtitle}
+                onChange={(e) => setContent((c) => ({ ...c, events_subtitle: e.target.value }))}
               />
             </div>
             <div className="space-y-1">
               <Label htmlFor="youtubeTitle">Judul YouTube</Label>
               <Input
                 id="youtubeTitle"
-                value={content.youtubeTitle}
-                onChange={(e) => setContent((c) => ({ ...c, youtubeTitle: e.target.value }))}
+                value={content.youtube_title}
+                onChange={(e) => setContent((c) => ({ ...c, youtube_title: e.target.value }))}
               />
             </div>
             <div className="space-y-1">
               <Label htmlFor="youtubeSubtitle">Subjudul YouTube</Label>
               <Input
                 id="youtubeSubtitle"
-                value={content.youtubeSubtitle}
-                onChange={(e) => setContent((c) => ({ ...c, youtubeSubtitle: e.target.value }))}
+                value={content.youtube_subtitle}
+                onChange={(e) => setContent((c) => ({ ...c, youtube_subtitle: e.target.value }))}
               />
             </div>
           </div>

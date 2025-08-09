@@ -17,21 +17,67 @@ type ChatMessage = {
   content: string
 }
 
+function buildContext() {
+  if (typeof window === "undefined") return {}
+  // Events (best-effort; adjust key if your admin stores under a different key)
+  let events: any[] = []
+  try {
+    events = JSON.parse(localStorage.getItem("masjid_events") || "[]")
+  } catch {
+    events = []
+  }
+  // Finance totals by category + latest items
+  let finance: any[] = []
+  try {
+    finance = JSON.parse(localStorage.getItem("masjid_finance") || "[]")
+  } catch {
+    finance = []
+  }
+  const byCategory: Record<string, { income: number; expense: number }> = {}
+  finance.forEach((i: any) => {
+    const cat = i.category || "Lainnya"
+    if (!byCategory[cat]) byCategory[cat] = { income: 0, expense: 0 }
+    if (i.type === "income") byCategory[cat].income += Number(i.amount || 0)
+    else byCategory[cat].expense += Number(i.amount || 0)
+  })
+  const latestFinance = [...finance]
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 5)
+    .map((i) => ({ type: i.type, category: i.category, amount: i.amount, date: i.date, note: i.note }))
+
+  // Home content
+  let content: any = {}
+  try {
+    content = JSON.parse(localStorage.getItem("masjid_home_content") || "{}")
+  } catch {
+    content = {}
+  }
+
+  return {
+    content,
+    events: events.slice(0, 10),
+    financeSummary: byCategory,
+    latestFinance,
+  }
+}
+
 export default function ChatBot() {
   const [demoMode, setDemoMode] = useState<boolean>(true)
   const [demoMessages, setDemoMessages] = useState<ChatMessage[]>([
     { id: "sys", role: "assistant", content: "Assalamu'alaikum! Ada yang bisa saya bantu tentang kegiatan masjid?" },
   ])
 
+  const staticContext = useMemo(() => buildContext(), [])
+
   const { messages, handleSubmit, isLoading, error, setInput } = useChat({
     api: "/api/chat",
+    body: { context: staticContext },
     onError: () => {
-      // if real API fails or no key, automatically switch to demo mode once
       setDemoMode(true)
     },
   })
 
-  // Local input to ensure a stable onChange handler (prevents 'value without onChange' warning) [^1]
+  // Local input for stable onChange
   const [localInput, setLocalInput] = useState<string>("")
 
   const listRef = useRef<HTMLDivElement>(null)
@@ -48,7 +94,7 @@ export default function ChatBot() {
     setLocalInput("")
 
     const replyText =
-      "Terima kasih! Untuk informasi kegiatan, buka bagian Kegiatan Mendatang di atas atau tanyakan detail tertentu (misal: 'Kapan kajian subuh berikutnya?')."
+      "Terima kasih! Saya dapat membantu pertanyaan seputar informasi masjid yang tersedia dan info keagamaan faktual. Untuk hal di luar itu atau topik kontroversial, mohon maaf saya tidak bisa menjawab."
     const assistantMsg: ChatMessage = { id: crypto.randomUUID(), role: "assistant", content: replyText }
     setTimeout(() => {
       setDemoMessages((prev) => [...prev, assistantMsg])
@@ -61,7 +107,6 @@ export default function ChatBot() {
       e.preventDefault()
       return
     }
-    // Sync our local value into the hook, then delegate to the hook's submit
     setInput(trimmed)
     handleSubmit(e)
     setLocalInput("")

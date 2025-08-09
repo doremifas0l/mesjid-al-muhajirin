@@ -1,100 +1,75 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
-import { Button } from "@/components/ui/button"
-import { ChevronLeft, ChevronRight } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { cn } from "@/lib/utils"
+import Image from "next/image"
 
 type Props = {
-  images?: string[]
+  images: string[]
   intervalMs?: number
-  ariaLabel?: string
+  className?: string
 }
 
-export default function HeroSlideshow({ images = [], intervalMs = 5000, ariaLabel = "Slideshow gambar hero" }: Props) {
-  const slides = useMemo(() => images.filter(Boolean).slice(0, 5), [images])
+export default function HeroSlideshow({ images, intervalMs = 4000, className }: Props) {
   const [index, setIndex] = useState(0)
-  const timerRef = useRef<number | null>(null)
+  const timer = useRef<NodeJS.Timeout | null>(null)
+  const count = Math.min(5, images.length)
 
   useEffect(() => {
-    if (slides.length <= 1) return
-    timerRef.current = window.setInterval(() => {
-      setIndex((i) => (i + 1) % slides.length)
+    if (count <= 1) return
+    timer.current = setInterval(() => {
+      setIndex((i) => (i + 1) % count)
     }, intervalMs)
     return () => {
-      if (timerRef.current) window.clearInterval(timerRef.current)
+      if (timer.current) clearInterval(timer.current)
     }
-  }, [slides.length, intervalMs])
+  }, [count, intervalMs])
 
-  if (slides.length === 0) {
+  // Fallback placeholder
+  if (!images || images.length === 0) {
     return (
-      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl ring-1 ring-neutral-200/80">
-        <img src="/hero-slideshow-placeholder.png" alt="Placeholder slideshow" className="h-full w-full object-cover" />
+      <div
+        className={cn("relative aspect-[4/3] w-full overflow-hidden rounded-xl ring-1 ring-neutral-200/80", className)}
+      >
+        <Image
+          src="/mosque-hero-placeholder.png"
+          alt="Placeholder gambar hero"
+          fill
+          className="object-cover"
+          sizes="(max-width: 768px) 100vw, 50vw"
+          priority
+        />
       </div>
     )
   }
 
-  function prev() {
-    setIndex((i) => (i - 1 + slides.length) % slides.length)
-  }
-
-  function next() {
-    setIndex((i) => (i + 1) % slides.length)
-  }
-
   return (
-    <div className="relative" role="region" aria-label={ariaLabel}>
-      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl ring-1 ring-neutral-200/80">
-        {slides.map((src, i) => (
-          <img
-            key={i}
-            src={src || "/placeholder.svg"}
-            alt={`Slide ${i + 1}`}
-            className={
-              "absolute left-0 top-0 h-full w-full object-cover transition-opacity duration-500 " +
-              (i === index ? "opacity-100" : "opacity-0")
-            }
-          />
-        ))}
-      </div>
-
-      {slides.length > 1 && (
-        <>
-          <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-1">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="pointer-events-auto bg-white/70 backdrop-blur"
-              aria-label="Sebelumnya"
-              onClick={prev}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-          </div>
-          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-1">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="pointer-events-auto bg-white/70 backdrop-blur"
-              aria-label="Berikutnya"
-              onClick={next}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-
-          <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
-            {slides.map((_, i) => (
-              <button
-                key={i}
-                aria-label={`Ke slide ${i + 1}`}
-                onClick={() => setIndex(i)}
-                className={"h-2 w-2 rounded-full border border-white/70 " + (i === index ? "bg-white" : "bg-white/40")}
-              />
-            ))}
-          </div>
-        </>
+    <div
+      className={cn("relative aspect-[4/3] w-full overflow-hidden rounded-xl ring-1 ring-neutral-200/80", className)}
+    >
+      {images.slice(0, 5).map((src, i) => (
+        <Image
+          key={`${src}-${i}`}
+          src={src || "/placeholder.svg"}
+          alt={`Slide ${i + 1}`}
+          fill
+          sizes="(max-width: 768px) 100vw, 50vw"
+          className={cn(
+            "absolute inset-0 object-cover transition-opacity duration-700",
+            i === index ? "opacity-100" : "opacity-0",
+          )}
+          priority={i === 0}
+        />
+      ))}
+      {count > 1 && (
+        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
+          {images.slice(0, 5).map((_, i) => (
+            <span
+              key={i}
+              className={cn("h-1.5 w-4 rounded-full bg-black/20", i === index ? "bg-black/60" : "bg-black/20")}
+            />
+          ))}
+        </div>
       )}
     </div>
   )
