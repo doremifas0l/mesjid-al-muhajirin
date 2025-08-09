@@ -3,24 +3,16 @@ import { streamText, tool, type UIMessage, convertToModelMessages } from "ai"
 import { createClient } from "@supabase/supabase-js"
 import { z } from "zod"
 
-// Type Definitions
+// Make sure your type definitions are here
 type FinanceRow = {
-  id?: string
-  amount?: number | string
-  type?: "income" | "expense" | string | null
-  category?: string | null
-  note?: string | null
-  date?: string | null
-  created_at?: string | null
+  id?: string;
+  amount?: number | string;
+  type?: "income" | "expense" | string | null;
+  category?: string | null;
+  note?: string | null;
+  date?: string | null;
+  created_at?: string | null;
 }
-
-// Helper function to safely convert to a number
-function num(x: number | string | undefined | null): number {
-  if (x == null) return 0
-  const n = typeof x === "number" ? x : Number.parseFloat(String(x).replace(/[^0-9.-]/g, ""))
-  return isNaN(n) ? 0 : n
-}
-
 
 export async function POST(req: Request) {
   try {
@@ -43,6 +35,7 @@ export async function POST(req: Request) {
         }),
         execute: async ({ year, month, type, category }) => {
           let query = supabase.from("finance_transactions").select("type, amount, category, date, note");
+          
           if (year && month) {
             const startDate = new Date(year, month - 1, 1);
             const endDate = new Date(year, month, 0);
@@ -54,12 +47,16 @@ export async function POST(req: Request) {
           if (category) {
             query = query.ilike('category', `%${category}%`);
           }
+
           const { data, error } = await query.limit(500);
-          if (error) return { toolName: 'getFinancialData', result: { error: error.message }};
+          
+          if (error) {
+            console.error("Supabase query error:", error);
+            return { toolName: 'getFinancialData', result: { error: error.message }};
+          }
           return { toolName: 'getFinancialData', result: { transactions: data }};
         },
       }),
-      // You could add a new tool for events here
     };
 
     const system = `You are a helpful assistant for Mesjid Al-Muhajirin Sarimas.
@@ -68,17 +65,21 @@ export async function POST(req: Request) {
 - If the tools return an error or no data, inform the user that the information could not be found.
 - Today's date is ${new Date().toISOString()}.`;
 
+    // THIS IS THE CRITICAL PART.
+    // There is NO `await` on the line below.
     const result = streamText({
-      model: google('gemini-2.5-flash'),
+      model: google('gemini-1.5-flash'),
       system,
       messages: convertToModelMessages(messages),
       tools,
     });
-
+    
+    // This line returns the stream handler immediately.
     return result.toAIStreamResponse();
 
   } catch (err) {
-    console.error(err);
+    // Log the full error to the server console for better debugging.
+    console.error("[API Chat Error]", err);
     return new Response(JSON.stringify({ error: "Failed to process chat request." }), { status: 500 });
   }
 }
