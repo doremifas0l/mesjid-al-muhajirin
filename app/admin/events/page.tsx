@@ -69,6 +69,9 @@ export default function EventsAdminPage() {
         const j = await res.json()
         const list = (j?.data || []) as EventRowType[]
         setEvents(list)
+      } else {
+        const j = await res.json().catch(() => ({}))
+        alert(`Gagal memuat kegiatan: ${j?.error || res.statusText}`)
       }
     })()
   }, [])
@@ -86,11 +89,12 @@ export default function EventsAdminPage() {
   }
 
   function buildISO(date: string, time: string) {
-    // robustly build ISO string (local date+time -> ISO)
     const safeDate = date || new Date().toISOString().slice(0, 10)
     const safeTime = time || "00:00"
-    const d = new Date(`${safeDate}T${safeTime}:00`)
-    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString()
+    // Ensure full format with seconds for consistent parsing
+    const raw = `${safeDate}T${safeTime.length === 5 ? safeTime + ":00" : safeTime}`
+    const d = new Date(raw)
+    return Number.isFinite(d.getTime()) ? d.toISOString() : new Date().toISOString()
   }
 
   async function addEvent() {
@@ -104,7 +108,6 @@ export default function EventsAdminPage() {
       if (form.recurrence === "daily" && i > 0) d.setDate(base.getDate() + i)
       if (form.recurrence === "weekly" && i > 0) d.setDate(base.getDate() + 7 * i)
       if (form.recurrence === "monthly" && i > 0) d.setMonth(base.getMonth() + i)
-
       toInsert.push({
         title: form.title.trim() || "Kegiatan Masjid",
         starts_at: d.toISOString(),

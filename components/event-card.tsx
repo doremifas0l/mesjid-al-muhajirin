@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import Image from "next/image"
 import { CalendarDays, MapPin, Clock } from "lucide-react"
 
+// Accept either legacy {date,time,imageUrl} or new {starts_at,image_url}
 export type EventCardInput =
   | {
       id: string
@@ -28,18 +29,24 @@ export type EventCardInput =
       time?: never
     }
 
-function formatDateTime(iso?: string) {
-  if (!iso) return { date: "Tanggal tidak diketahui", time: "" }
-  const d = new Date(iso)
-  if (!Number.isFinite(d.getTime())) return { date: "Tanggal tidak valid", time: "" }
-  const dateStr = d.toLocaleDateString(undefined, {
+function normalizeIso(input?: string) {
+  if (!input) return null
+  const candidate = input.includes(" ") ? input.replace(" ", "T") : input
+  const d = new Date(candidate)
+  if (!Number.isFinite(d.getTime())) return null
+  return d
+}
+
+function formatDate(d: Date) {
+  return d.toLocaleDateString(undefined, {
     weekday: "long",
     year: "numeric",
     month: "long",
     day: "numeric",
   })
-  const timeStr = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
-  return { date: dateStr, time: timeStr }
+}
+function formatTime(d: Date) {
+  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
 }
 
 export default function EventCard({ event }: { event?: EventCardInput }) {
@@ -55,17 +62,14 @@ export default function EventCard({ event }: { event?: EventCardInput }) {
       imageUrl: "/mosque-event-banner.png",
     } as const)
 
-  // Normalize fields
   const iso = "starts_at" in fallback ? fallback.starts_at : fallback.date
+  const d = normalizeIso(iso)
+  const dateText = d ? formatDate(d) : "Tanggal tidak valid"
   const timeFromEvent = "time" in fallback ? fallback.time : undefined
-  const { date, time } = formatDateTime(iso)
-  const timeText = timeFromEvent || time
+  const timeText = timeFromEvent || (d ? formatTime(d) : "-")
 
-  // Pick image URL (support both keys)
   const rawUrl = ("image_url" in fallback && fallback.image_url) || ("imageUrl" in fallback && fallback.imageUrl) || ""
-  const imgSrc = rawUrl || "/mosque-community-gathering.png"
-
-  // Use next/image for local assets; <img> for remote/data URLs to avoid remotePatterns requirement [^2][^4]
+  const imgSrc = rawUrl || "/mosque-event-banner.png"
   const isLocal = imgSrc.startsWith("/")
 
   return (
@@ -73,15 +77,16 @@ export default function EventCard({ event }: { event?: EventCardInput }) {
       <div className="relative h-40 w-full">
         {isLocal ? (
           <Image
-            src={imgSrc || "/placeholder.svg"}
+            src={imgSrc || "/placeholder.svg?height=400&width=640&query=mosque%20community%20gathering"}
             alt={`Gambar kegiatan ${fallback.title}`}
             fill
             sizes="(max-width: 768px) 100vw, 33vw"
             className="object-cover"
           />
         ) : (
+          // Use native <img> for remote URLs so it works on prod without next/image remotePatterns [^5]
           <img
-            src={imgSrc || "/placeholder.svg"}
+            src={imgSrc || "/placeholder.svg?height=400&width=640&query=mosque%20community%20gathering"}
             alt={`Gambar kegiatan ${fallback.title}`}
             className="h-full w-full object-cover"
           />
@@ -93,11 +98,11 @@ export default function EventCard({ event }: { event?: EventCardInput }) {
       <CardContent className="space-y-2 text-sm text-emerald-800/80">
         <div className="flex items-center gap-2">
           <CalendarDays className="h-4 w-4 text-emerald-700" />
-          <span>{date}</span>
+          <span>{dateText}</span>
         </div>
         <div className="flex items-center gap-2">
           <Clock className="h-4 w-4 text-emerald-700" />
-          <span>{timeText || "-"}</span>
+          <span>{timeText}</span>
         </div>
         <div className="flex items-center gap-2">
           <MapPin className="h-4 w-4 text-emerald-700" />
@@ -108,5 +113,3 @@ export default function EventCard({ event }: { event?: EventCardInput }) {
     </Card>
   )
 }
-
-// Note: next/image requires remotePatterns for external domains if used; fallback to <img> ensures images render without extra config [^2][^4]

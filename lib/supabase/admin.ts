@@ -1,16 +1,17 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js"
+// Server-side Supabase admin client (service role)
+import { createClient } from "@supabase/supabase-js"
 
-let adminClient: SupabaseClient | null = null
+let adminSingleton: ReturnType<typeof createClient> | null = null
 
 export function getSupabaseAdmin() {
-  if (adminClient) return adminClient
+  if (adminSingleton) return adminSingleton
   const url = process.env.SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) {
-    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY")
+    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables")
   }
-  adminClient = createClient(url, key, {
-    auth: { persistSession: false },
+  adminSingleton = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
   })
-  return adminClient
+  return adminSingleton
 }

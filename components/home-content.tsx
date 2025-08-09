@@ -55,7 +55,7 @@ export default function HomeContent() {
 
   useEffect(() => {
     ;(async () => {
-      // content
+      // Content
       const cRes = await fetch("/api/homepage/content")
       if (cRes.ok) {
         const j = await cRes.json()
@@ -76,14 +76,14 @@ export default function HomeContent() {
           }))
         }
       }
-      // images
+      // Images
       const iRes = await fetch("/api/homepage/images")
       if (iRes.ok) {
         const j = await iRes.json()
         const list = (j?.data as any[]) || []
         setHeroImages(list.map((r) => r.url).slice(0, 5))
       }
-      // events
+      // Events
       const eRes = await fetch("/api/events")
       if (eRes.ok) {
         const j = await eRes.json()
@@ -96,13 +96,13 @@ export default function HomeContent() {
     const now = Date.now()
     return [...events]
       .filter((e) => {
-        const t = new Date(e.starts_at).getTime()
+        // Safe filter even if starts_at was malformed
+        const t = new Date((e.starts_at || "").toString().replace(" ", "T")).getTime()
         return Number.isFinite(t) && t >= now - 24 * 60 * 60 * 1000
       })
       .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime())
   }, [events])
 
-  // Adapter to EventCardInput
   function toCard(e: DbEvent): EventCardInput {
     return {
       id: e.id,
@@ -161,7 +161,6 @@ export default function HomeContent() {
           </div>
         ) : (
           <div className="mt-6">
-            {/* Slider receives already-sorted events; reuse EventCard per-item inside slider if needed */}
             <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth pb-2">
               {upcoming.map((ev) => (
                 <div key={ev.id} className="min-w-[280px] max-w-[360px] snap-start">
