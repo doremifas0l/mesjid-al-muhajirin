@@ -3,7 +3,24 @@ import { streamText, tool, type UIMessage, convertToModelMessages } from "ai"
 import { createClient } from "@supabase/supabase-js"
 import { z } from "zod"
 
-// ... (keep all your type definitions and helper functions)
+// Type Definitions
+type FinanceRow = {
+  id?: string
+  amount?: number | string
+  type?: "income" | "expense" | string | null
+  category?: string | null
+  note?: string | null
+  date?: string | null
+  created_at?: string | null
+}
+
+// Helper function to safely convert to a number
+function num(x: number | string | undefined | null): number {
+  if (x == null) return 0
+  const n = typeof x === "number" ? x : Number.parseFloat(String(x).replace(/[^0-9.-]/g, ""))
+  return isNaN(n) ? 0 : n
+}
+
 
 export async function POST(req: Request) {
   try {
@@ -42,7 +59,7 @@ export async function POST(req: Request) {
           return { toolName: 'getFinancialData', result: { transactions: data }};
         },
       }),
-      // Add more tools here...
+      // You could add a new tool for events here
     };
 
     const system = `You are a helpful assistant for Mesjid Al-Muhajirin Sarimas.
@@ -51,26 +68,17 @@ export async function POST(req: Request) {
 - If the tools return an error or no data, inform the user that the information could not be found.
 - Today's date is ${new Date().toISOString()}.`;
 
-    // --- THE FIX IS HERE ---
-    // REMOVED `await` to get the handler object synchronously
     const result = streamText({
-      model: google('gemini-1.5-flash'),
+      model: google('gemini-2.5-flash'),
       system,
       messages: convertToModelMessages(messages),
       tools,
     });
 
-    // Now 'result' is the handler object, and this call will work correctly.
     return result.toAIStreamResponse();
 
   } catch (err) {
     console.error(err);
     return new Response(JSON.stringify({ error: "Failed to process chat request." }), { status: 500 });
   }
-}```
-
-### A Critical Final Note: The Client-Side
-
-This server-side fix is essential. However, for the tool-calling process to be complete, your frontend (client-side) code **must** be using a Vercel AI SDK hook that is aware of tools/actions, like `useChat` or `useActions`.
-
-The server will send a special message to the client when the AI wants to call a tool. The client-side hook will receive this message, execute the function, and send the result back to the server to complete the loop. Your current error is purely server-side, but this is the next logical step in the chain.
+}
