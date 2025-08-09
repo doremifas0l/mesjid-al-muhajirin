@@ -29,24 +29,11 @@ export type EventCardInput =
       time?: never
     }
 
-function normalizeIso(input?: string) {
+function normalizeDate(input?: string) {
   if (!input) return null
-  const candidate = input.includes(" ") ? input.replace(" ", "T") : input
-  const d = new Date(candidate)
-  if (!Number.isFinite(d.getTime())) return null
-  return d
-}
-
-function formatDate(d: Date) {
-  return d.toLocaleDateString(undefined, {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  })
-}
-function formatTime(d: Date) {
-  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+  const c = input.includes(" ") ? input.replace(" ", "T") : input
+  const d = new Date(c)
+  return Number.isFinite(d.getTime()) ? d : null
 }
 
 export default function EventCard({ event }: { event?: EventCardInput }) {
@@ -63,10 +50,18 @@ export default function EventCard({ event }: { event?: EventCardInput }) {
     } as const)
 
   const iso = "starts_at" in fallback ? fallback.starts_at : fallback.date
-  const d = normalizeIso(iso)
-  const dateText = d ? formatDate(d) : "Tanggal tidak valid"
+  const d = normalizeDate(iso)
+
+  const dateText = d
+    ? d.toLocaleDateString(undefined, {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+    : "Tanggal tidak valid"
   const timeFromEvent = "time" in fallback ? fallback.time : undefined
-  const timeText = timeFromEvent || (d ? formatTime(d) : "-")
+  const timeText = timeFromEvent || (d ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "-")
 
   const rawUrl = ("image_url" in fallback && fallback.image_url) || ("imageUrl" in fallback && fallback.imageUrl) || ""
   const imgSrc = rawUrl || "/mosque-event-banner.png"
@@ -77,16 +72,15 @@ export default function EventCard({ event }: { event?: EventCardInput }) {
       <div className="relative h-40 w-full">
         {isLocal ? (
           <Image
-            src={imgSrc || "/placeholder.svg?height=400&width=640&query=mosque%20community%20gathering"}
+            src={imgSrc || "/placeholder.svg"}
             alt={`Gambar kegiatan ${fallback.title}`}
             fill
             sizes="(max-width: 768px) 100vw, 33vw"
             className="object-cover"
           />
         ) : (
-          // Use native <img> for remote URLs so it works on prod without next/image remotePatterns [^5]
           <img
-            src={imgSrc || "/placeholder.svg?height=400&width=640&query=mosque%20community%20gathering"}
+            src={imgSrc || "/placeholder.svg"}
             alt={`Gambar kegiatan ${fallback.title}`}
             className="h-full w-full object-cover"
           />

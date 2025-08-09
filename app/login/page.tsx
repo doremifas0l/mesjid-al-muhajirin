@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Header from "@/components/header"
@@ -35,7 +34,7 @@ export default function LoginPage() {
         localStorage.setItem("masjid_admin_authed", "true")
         router.push("/admin")
       } else {
-        setError('Password salah. Gunakan password default: "muhajirin120".')
+        setError("Password salah.")
       }
     } finally {
       setIsSubmitting(false)
@@ -50,7 +49,7 @@ export default function LoginPage() {
           <CardHeader>
             <CardTitle className="text-neutral-900">Login Admin</CardTitle>
             <CardDescription className="text-neutral-600">
-              Masuk untuk mengelola konten dan kegiatan. Default password: "muhajirin120"
+              Silakan masuk untuk mengelola konten dan kegiatan.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -74,10 +73,6 @@ export default function LoginPage() {
               <Button type="submit" className="w-full bg-neutral-900 hover:bg-black" disabled={isSubmitting}>
                 {isSubmitting ? "Memproses..." : "Masuk"}
               </Button>
-              <p className="text-xs text-neutral-500">
-                Catatan: Login saat ini bersifat demo (client-side). Untuk produksi, gunakan penyimpanan hash di
-                server/DB dan autentikasi yang aman (misal Supabase).
-              </p>
             </form>
           </CardContent>
         </Card>
