@@ -5,12 +5,14 @@ import { createClient } from "@supabase/supabase-js"
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30
 
+// 1. PERBAIKAN: Tambahkan `occured_at` ke tipe data
 type FinanceRow = {
   id?: string
   amount?: number | string
   type?: "income" | "expense" | string | null
   category?: string | null
   note?: string | null
+  occured_at?: string | null // <-- TAMBAHKAN INI
   date?: string | null
   created_at?: string | null
 }
@@ -75,7 +77,6 @@ export async function POST(req: Request) {
       notes = (n as NoteRow[]) || []
     }
 
-    // --- Start Finance Computations ---
     const now = new Date()
     const year = now.getFullYear()
     const month = now.getMonth()
@@ -85,7 +86,9 @@ export async function POST(req: Request) {
     const financeThisMonth: FinanceRow[] = []
 
     for (const row of finance) {
-      const d = safeDate(row.date || row.created_at)
+      // 2. PERBAIKAN: Prioritaskan `occured_at` sebagai sumber tanggal
+      const d = safeDate(row.occured_at || row.date || row.created_at) // <-- UBAH BARIS INI
+      
       if (!d || !sameMonth(d, year, month)) continue
       financeThisMonth.push(row)
       const cat = (row.category || "Lainnya").trim()
@@ -110,15 +113,13 @@ export async function POST(req: Request) {
         biggestExpenseThisMonth = {
           amount,
           category: (row.category || "Lainnya").trim(),
-          date: safeDate(row.date || row.created_at)?.toISOString() || new Date().toISOString(),
+          date: safeDate(row.occured_at || row.date || row.created_at)?.toISOString() || new Date().toISOString(),
           note: row.note,
         }
       }
     }
-    // --- End Finance Computations ---
 
-
-    // --- Start Event & Note Processing (UPDATED LOGIC) ---
+    // (Sisa kode untuk memproses events dan notes tidak perlu diubah)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -128,23 +129,21 @@ export async function POST(req: Request) {
           id: e.id,
           title: e.title || "",
           location: e.location || "",
-          description: (e.description || "").slice(0, 200), // Pangkas deskripsi agar tidak terlalu panjang
+          description: (e.description || "").slice(0, 200),
           starts_at: starts ? starts.toISOString() : null,
         }
       })
-      .filter(e => e.title && e.starts_at); // Hanya proses acara yang valid
+      .filter(e => e.title && e.starts_at);
 
-    // 1. Dapatkan kegiatan yang akan datang
     const upcomingEvents = allNormalizedEvents
       .filter(e => new Date(e.starts_at!) >= today)
       .sort((a, b) => new Date(a.starts_at!).getTime() - new Date(b.starts_at!).getTime())
       .slice(0, 25);
 
-    // 2. Dapatkan kegiatan lampau terkini sebagai fallback
     const recentPastEvents = allNormalizedEvents
       .filter(e => new Date(e.starts_at!) < today)
-      .sort((a, b) => new Date(b.starts_at!).getTime() - new Date(a.starts_at!).getTime()) // Urutkan dari yang terbaru
-      .slice(0, 5); // Ambil 5 kegiatan lampau terakhir
+      .sort((a, b) => new Date(b.starts_at!).getTime() - new Date(a.starts_at!).getTime())
+      .slice(0, 5);
 
     const normalizedNotes = notes
       .map((n) => ({
@@ -154,54 +153,50 @@ export async function POST(req: Request) {
         created_at: safeDate(n.created_at || null)?.toISOString() || null,
       }))
       .slice(0, 50)
-    // --- End Event & Note Processing ---
-
-
-    // --- Start Context Assembly (UPDATED CONTEXT) ---
+      
+    // Konteks yang dikirim ke AI
     const context = {
-      meta: { generated_at: new Date().toISOString(), month: month + 1, year },
-      finance: {
-        monthlyTotalsByCategory,
-        totalInfaqThisMonth,
-        biggestExpenseThisMonth,
-        countThisMonth: financeThisMonth.length,
-      },
-      // Struktur event yang baru
-      events: {
-        upcoming: upcomingEvents,
-        recent_past: recentPastEvents,
-      },
-      notes: normalizedNotes,
-    }
+        meta: { generated_at: new Date().toISOString(), month: month + 1, year },
+        finance: {
+            monthlyTotalsByCategory,
+            totalInfaqThisMonth,
+            biggestExpenseThisMonth,
+            countThisMonth: financeThisMonth.length,
+        },
+        events: {
+            upcoming: upcomingEvents,
+            recent_past: recentPastEvents,
+        },
+        notes: normalizedNotes,
+    };
 
-    const system = [
-      "Anda adalah asisten AI untuk Masjid Al-Muhajirin Sarimas.",
-      "Tugas Anda adalah menjawab pertanyaan jamaah berdasarkan KONTEKS JSON di bawah.",
-      "",
-      "ATURAN PENTING:",
-      "1. Jawaban WAJIB berdasarkan data di `KONTEKS JSON`. Jangan berasumsi atau mengarang.",
-      "2. Selalu jawab dalam Bahasa Indonesia yang ringkas, sopan, dan jelas.",
-      "3. Jika data yang diminta tidak ada, sampaikan bahwa data tidak tersedia.",
-      "4. Tolak dengan sopan untuk menjawab topik kontroversial, politik, atau perdebatan.",
-      "",
-      "CARA MENGGUNAKAN DATA KEGIATAN:",
-      "- Data kegiatan ada dua: `events.upcoming` (akan datang) dan `events.recent_past` (lampau terkini).",
-      "- Jika ditanya tentang kegiatan mendatang, UTAMAKAN data dari `events.upcoming`.",
-      "- Jika `events.upcoming` kosong, Anda BOLEH memberitahu bahwa belum ada jadwal baru dan memberikan contoh kegiatan dari `events.recent_past` sebagai referensi.",
-      "",
-      "--- KONTEKS JSON ---",
-      JSON.stringify(context, null, 2),
-    ].join("\n")
-    // --- End Context Assembly ---
+    const system = `Anda adalah asisten AI untuk Masjid Al-Muhajirin Sarimas. Tugas Anda adalah menjawab pertanyaan jamaah berdasarkan KONTEKS JSON di bawah.
+
+ATURAN PENTING:
+1. Jawaban WAJIB berdasarkan data di \`KONTEKS JSON\`. Jangan berasumsi atau mengarang.
+2. Selalu jawab dalam Bahasa Indonesia yang ringkas, sopan, dan jelas.
+3. Jika data yang diminta tidak ada, sampaikan bahwa data tidak tersedia.
+4. Tolak dengan sopan untuk menjawab topik kontroversial, politik, atau perdebatan.
+
+CARA MENGGUNAKAN DATA KEGIATAN:
+- Data kegiatan ada dua: \`events.upcoming\` (akan datang) dan \`events.recent_past\` (lampau terkini).
+- Jika ditanya tentang kegiatan mendatang, UTAMAKAN data dari \`events.upcoming\`.
+- Jika \`events.upcoming\` kosong, Anda BOLEH memberitahu bahwa belum ada jadwal baru dan memberikan contoh kegiatan dari \`events.recent_past\` sebagai referensi.
+
+--- KONTEKS JSON ---
+${JSON.stringify(context, null, 2)}`;
 
     const result = streamText({
-      model: google("models/gemini-1.5-flash-latest"),
-      system,
-      messages: convertToModelMessages(messages),
-    })
-    return result.toUIMessageStreamResponse()
+        model: google("models/gemini-1.5-flash-latest"),
+        system,
+        messages: convertToModelMessages(messages),
+    });
+    return result.toUIMessageStreamResponse();
+
   } catch (err) {
-    console.error(err); // Tambahkan logging untuk debugging di server
+    console.error(err);
     return new Response(JSON.stringify({ error: "Failed to process chat request." }), { status: 500 })
   }
-}
+}```
+
+Setelah menerapkan perubahan ini, kode chatbot Anda akan berhasil membaca tanggal dari `occured_at`, menghitung total pemasukan dengan benar, dan memberikan jawaban yang akurat kepada pengguna.
