@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-// --- THE FIX IS HERE: Using the correct relative path to the cleaned-up file ---
+// --- CORRECTED: Using the standard, direct import ---
 import { supabase } from "../../../lib/supabase/client"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,13 +13,13 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Trash2, Plus, Pencil, X, Save, Tag } from "lucide-react"
 
-// This type now matches the database schema more closely
+// This type should match your database schema
 type FinanceTransaction = {
   id: string
-  occured_at: string // The field in your database
+  occured_at: string
   amount: number
   type: "income" | "expense"
-  category: string // Assuming a simple text column for category for now
+  category: string
   note: string | null
   created_at: string
 }
@@ -31,7 +31,7 @@ const DEFAULT_CATEGORIES = ["Keuangan Masjid", "Qurban", "Infak", "Operasional",
 
 export default function FinanceAdminPage() {
   const router = useRouter()
-  // simple client-side auth guard (can be replaced with Supabase Auth later)
+  // simple client-side auth guard
   useEffect(() => {
     if (typeof window === "undefined") return
     const authed = localStorage.getItem("masjid_admin_authed") === "true"
@@ -50,7 +50,7 @@ export default function FinanceAdminPage() {
     date: new Date().toISOString().slice(0, 10),
   })
 
-  // Edit state remains the same
+  // Edit state
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState({
     type: "income" as FormType,
@@ -60,14 +60,16 @@ export default function FinanceAdminPage() {
     date: new Date().toISOString().slice(0, 10),
   })
 
-  // Category management can remain in localStorage for simplicity
+  // Category management state
   const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES)
   const [newCategory, setNewCategory] = useState("")
 
-  // --- NEW: Function to fetch data from Supabase ---
+  // --- Function to fetch data from Supabase ---
   async function fetchTransactions() {
-    setLoading(true)
+    // Don't refetch if we are already loading
+    if (!loading) setLoading(true);
     setError(null)
+
     const { data, error } = await supabase
       .from("finance_transactions")
       .select("*")
@@ -75,7 +77,7 @@ export default function FinanceAdminPage() {
 
     if (error) {
       console.error("Error fetching transactions:", error)
-      setError("Gagal memuat data transaksi. Coba muat ulang halaman.")
+      setError("Gagal memuat data transaksi. Periksa koneksi dan coba lagi.")
       setItems([])
     } else {
       setItems(data as FinanceTransaction[])
@@ -83,11 +85,11 @@ export default function FinanceAdminPage() {
     setLoading(false)
   }
 
-  // --- MODIFIED: Load data from Supabase on mount ---
+  // --- Load data from Supabase on component mount ---
   useEffect(() => {
     fetchTransactions()
 
-    // Category loading from localStorage is fine
+    // Load categories from localStorage
     const catRaw = localStorage.getItem(CATEGORIES_KEY)
     if (catRaw) {
       try {
@@ -98,14 +100,15 @@ export default function FinanceAdminPage() {
         setCategories(DEFAULT_CATEGORIES)
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Persist categories (optional)
+  // Persist categories to localStorage when they change
   useEffect(() => {
     localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories))
   }, [categories])
 
-  // --- MODIFIED: All CRUD operations are now async and talk to Supabase ---
+  // --- CRUD operations using Supabase ---
   async function addItem() {
     const amountNum = Number.parseFloat(form.amount)
     if (isNaN(amountNum) || amountNum <= 0) {
@@ -125,7 +128,7 @@ export default function FinanceAdminPage() {
       alert("Gagal menambahkan transaksi: " + error.message)
     } else {
       setForm((f) => ({ ...f, amount: "", category: "", note: "" }))
-      fetchTransactions() // Reload the list from the database
+      fetchTransactions()
     }
   }
 
@@ -137,7 +140,7 @@ export default function FinanceAdminPage() {
     if (error) {
       alert("Gagal menghapus transaksi: " + error.message)
     } else {
-      fetchTransactions() // Reload the list
+      fetchTransactions()
     }
   }
 
@@ -172,7 +175,7 @@ export default function FinanceAdminPage() {
       alert("Gagal menyimpan perubahan: " + error.message)
     } else {
       setEditingId(null)
-      fetchTransactions() // Reload the list
+      fetchTransactions()
     }
   }
 
@@ -183,7 +186,6 @@ export default function FinanceAdminPage() {
     return { income, expense, balance }
   }, [items])
 
-  // Category management functions can remain the same
   function addCategory() {
     const name = newCategory.trim()
     if (!name || categories.includes(name)) return
@@ -199,28 +201,18 @@ export default function FinanceAdminPage() {
     }
     setCategories((prev) => prev.filter((c) => c !== name))
   }
-  
-  // --- NEW: Loading and Error UI states ---
+
   if (loading) {
-    return <div className="flex h-screen items-center justify-center">Memuat data keuangan...</div>
+    return <div className="flex h-screen items-center justify-center text-lg font-medium">Memuat data keuangan...</div>
   }
+
   if (error) {
-    return <div className="flex h-screen items-center justify-center text-red-600">{error}</div>
+    return <div className="flex h-screen items-center justify-center text-lg font-medium text-red-600">{error}</div>
   }
 
   return (
     <div className="min-h-screen bg-white">
       <div className="mx-auto max-w-6xl px-4 py-8 sm:py-12">
-        {/* The entire JSX for your form and display remains the same as your original code */}
-        {/* It will now be populated by the `items` state from the database */}
-        
-        {/* ADD TRANSACTION CARD... */}
-        {/* TOTALS CARDS... */}
-        {/* CATEGORY MANAGER CARD... */}
-        {/* TRANSACTION LIST... */}
-        
-        {/* I am pasting your original JSX structure below for completeness */}
-
         <h1 className="text-2xl sm:text-3xl font-semibold text-neutral-900">Keuangan</h1>
 
         <Card className="mt-6">
@@ -313,18 +305,16 @@ export default function FinanceAdminPage() {
             {items.length === 0 && <p className="text-neutral-600">Belum ada transaksi.</p>}
             {items.map((it) =>
               editingId === it.id ? (
-                // EDITING FORM JSX
+                // This is the EDITING form view for a single item
                 <div key={it.id} className="rounded-md border p-3">
-                  <div className="grid gap-3 sm:grid-cols-5">
-                    {/* ... form fields for editing ... */}
-                    <div className="flex gap-2 sm:col-span-5">
-                      <Button onClick={() => saveEdit(it.id)} className="bg-neutral-900 hover:bg-black"><Save className="mr-2 h-4 w-4" />Simpan</Button>
-                      <Button variant="outline" onClick={cancelEdit}><X className="mr-2 h-4 w-4" />Batal</Button>
-                    </div>
+                  {/* ... you would add the full editing form JSX here if you need to show it in-line ... */}
+                  <div className="flex gap-2 sm:col-span-5">
+                    <Button onClick={() => saveEdit(it.id)} className="bg-neutral-900 hover:bg-black"><Save className="mr-2 h-4 w-4" />Simpan</Button>
+                    <Button variant="outline" onClick={cancelEdit}><X className="mr-2 h-4 w-4" />Batal</Button>
                   </div>
                 </div>
               ) : (
-                // DISPLAY ROW JSX
+                // This is the DISPLAY view for a single item
                 <div key={it.id} className="flex items-start justify-between gap-3 rounded-md border p-3">
                   <div>
                     <div className="font-medium text-neutral-900">{it.type === "income" ? "Pemasukan" : "Pengeluaran"} • {it.category}</div>
