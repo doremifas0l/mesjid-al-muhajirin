@@ -57,7 +57,6 @@ export async function POST(req: Request) {
       return new Response(JSON.stringify({ error: "Missing GOOGLE_GENERATIVE_AI_API_KEY" }), { status: 401 })
     }
 
-    // Optional Supabase context (finance, events, notes)
     const hasSupabase = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_ANON_KEY
     const supabase = hasSupabase ? createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!) : null
 
@@ -76,7 +75,7 @@ export async function POST(req: Request) {
       notes = (n as NoteRow[]) || []
     }
 
-    // Compute monthly finance metrics
+    // --- Start Finance Computations ---
     const now = new Date()
     const year = now.getFullYear()
     const month = now.getMonth()
@@ -87,18 +86,15 @@ export async function POST(req: Request) {
 
     for (const row of finance) {
       const d = safeDate(row.date || row.created_at)
-      if (!d) continue
-      if (!sameMonth(d, year, month)) continue
+      if (!d || !sameMonth(d, year, month)) continue
       financeThisMonth.push(row)
       const cat = (row.category || "Lainnya").trim()
       if (!monthlyTotalsByCategory[cat]) monthlyTotalsByCategory[cat] = { income: 0, expense: 0 }
       const amount = num(row.amount)
-      const t = (row.type || "").toLowerCase()
-      if (t === "income") monthlyTotalsByCategory[cat].income += amount
+      if ((row.type || "").toLowerCase() === "income") monthlyTotalsByCategory[cat].income += amount
       else monthlyTotalsByCategory[cat].expense += amount
     }
 
-    // Total pemasukan infaq bulan ini
     let totalInfaqThisMonth = 0
     for (const [cat, totals] of Object.entries(monthlyTotalsByCategory)) {
       if (cat.toLowerCase().includes("infaq") || cat.toLowerCase().includes("infak")) {
@@ -106,11 +102,9 @@ export async function POST(req: Request) {
       }
     }
 
-    // Pengeluaran terbesar bulan ini
     let biggestExpenseThisMonth: { amount: number; category: string; date: string; note?: string | null } | null = null
     for (const row of financeThisMonth) {
-      const t = (row.type || "").toLowerCase()
-      if (t !== "expense") continue
+      if ((row.type || "").toLowerCase() !== "expense") continue
       const amount = num(row.amount)
       if (!biggestExpenseThisMonth || amount > biggestExpenseThisMonth.amount) {
         biggestExpenseThisMonth = {
@@ -121,27 +115,36 @@ export async function POST(req: Request) {
         }
       }
     }
+    // --- End Finance Computations ---
 
-    // Normalize events/notes
-    const normalizedEvents = events
-      .map((e) => {
-        const starts = safeDate(e.starts_at || (e.date && e.time ? `${e.date}T${e.time}` : e.date || null))
+
+    // --- Start Event & Note Processing (UPDATED LOGIC) ---
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const allNormalizedEvents = events.map((e) => {
+        const starts = safeDate(e.starts_at || (e.date && e.time ? `${e.date}T${e.time}` : e.date || null));
         return {
           id: e.id,
           title: e.title || "",
           location: e.location || "",
-          description: e.description || "",
-          image_url: e.image_url || e.imageUrl || "",
+          description: (e.description || "").slice(0, 200), // Pangkas deskripsi agar tidak terlalu panjang
           starts_at: starts ? starts.toISOString() : null,
         }
       })
-      .filter((e) => e.title)
-      .sort((a, b) => {
-        const ad = a.starts_at ? new Date(a.starts_at).getTime() : Number.MAX_SAFE_INTEGER
-        const bd = b.starts_at ? new Date(b.starts_at).getTime() : Number.MAX_SAFE_INTEGER
-        return ad - bd
-      })
-      .slice(0, 50)
+      .filter(e => e.title && e.starts_at); // Hanya proses acara yang valid
+
+    // 1. Dapatkan kegiatan yang akan datang
+    const upcomingEvents = allNormalizedEvents
+      .filter(e => new Date(e.starts_at!) >= today)
+      .sort((a, b) => new Date(a.starts_at!).getTime() - new Date(b.starts_at!).getTime())
+      .slice(0, 25);
+
+    // 2. Dapatkan kegiatan lampau terkini sebagai fallback
+    const recentPastEvents = allNormalizedEvents
+      .filter(e => new Date(e.starts_at!) < today)
+      .sort((a, b) => new Date(b.starts_at!).getTime() - new Date(a.starts_at!).getTime()) // Urutkan dari yang terbaru
+      .slice(0, 5); // Ambil 5 kegiatan lampau terakhir
 
     const normalizedNotes = notes
       .map((n) => ({
@@ -151,7 +154,10 @@ export async function POST(req: Request) {
         created_at: safeDate(n.created_at || null)?.toISOString() || null,
       }))
       .slice(0, 50)
+    // --- End Event & Note Processing ---
 
+
+    // --- Start Context Assembly (UPDATED CONTEXT) ---
     const context = {
       meta: { generated_at: new Date().toISOString(), month: month + 1, year },
       finance: {
@@ -160,39 +166,42 @@ export async function POST(req: Request) {
         biggestExpenseThisMonth,
         countThisMonth: financeThisMonth.length,
       },
-      events: normalizedEvents,
-      notes: normalizedNotes,
-      instructions: {
-        language: "id",
-        rules: [
-          "Jawab HANYA berdasarkan data di konteks (finance, kegiatan, catatan) dan fakta keagamaan yang tidak kontroversial.",
-          "Jika data yang diminta tidak ada, jawab singkat bahwa data tidak tersedia.",
-          "Tolak topik kontroversial/politik/sektarian/spekulatif.",
-          "Jawab ringkas dan jelas dalam Bahasa Indonesia.",
-        ],
+      // Struktur event yang baru
+      events: {
+        upcoming: upcomingEvents,
+        recent_past: recentPastEvents,
       },
+      notes: normalizedNotes,
     }
 
     const system = [
-      "Anda adalah asisten untuk Mesjid Al-Muhajirin Sarimas.",
-      "Ikuti aturan berikut:",
-      "- Hanya jawab berdasarkan 'KONTEKS' di bawah dan informasi keagamaan faktual yang tidak kontroversial.",
-      "- Tolak pertanyaan kontroversial, politik, sektarian, perdebatan, atau di luar cakupan data.",
-      "- Jika data tidak tersedia, sampaikan dengan singkat dan sarankan memeriksa sumber resmi setempat.",
-      "- Jawab ringkas dalam Bahasa Indonesia.",
+      "Anda adalah asisten AI untuk Masjid Al-Muhajirin Sarimas.",
+      "Tugas Anda adalah menjawab pertanyaan jamaah berdasarkan KONTEKS JSON di bawah.",
       "",
-      "KONTEKS JSON:",
+      "ATURAN PENTING:",
+      "1. Jawaban WAJIB berdasarkan data di `KONTEKS JSON`. Jangan berasumsi atau mengarang.",
+      "2. Selalu jawab dalam Bahasa Indonesia yang ringkas, sopan, dan jelas.",
+      "3. Jika data yang diminta tidak ada, sampaikan bahwa data tidak tersedia.",
+      "4. Tolak dengan sopan untuk menjawab topik kontroversial, politik, atau perdebatan.",
+      "",
+      "CARA MENGGUNAKAN DATA KEGIATAN:",
+      "- Data kegiatan ada dua: `events.upcoming` (akan datang) dan `events.recent_past` (lampau terkini).",
+      "- Jika ditanya tentang kegiatan mendatang, UTAMAKAN data dari `events.upcoming`.",
+      "- Jika `events.upcoming` kosong, Anda BOLEH memberitahu bahwa belum ada jadwal baru dan memberikan contoh kegiatan dari `events.recent_past` sebagai referensi.",
+      "",
+      "--- KONTEKS JSON ---",
       JSON.stringify(context, null, 2),
     ].join("\n")
+    // --- End Context Assembly ---
 
-    // Important: return UI message stream for @ai-sdk/react [^3][^4]
     const result = streamText({
-      model: google("gemini-2.5-flash"),
+      model: google("models/gemini-1.5-flash-latest"),
       system,
       messages: convertToModelMessages(messages),
     })
     return result.toUIMessageStreamResponse()
   } catch (err) {
+    console.error(err); // Tambahkan logging untuk debugging di server
     return new Response(JSON.stringify({ error: "Failed to process chat request." }), { status: 500 })
   }
 }
