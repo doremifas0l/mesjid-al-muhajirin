@@ -1,197 +1,142 @@
 import { google } from "@ai-sdk/google";
-import { streamText, type UIMessage, convertToModelMessages } from "ai";
+import { streamText, tool, convertToModelMessages, type CoreMessage } from "ai";
 import { createClient } from "@supabase/supabase-js";
+import { z } from "zod";
+import { NextResponse } from "next/server";
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
 
-type FinanceRow = {
-  id?: string;
-  amount?: number | string;
-  type?: "income" | "expense" | string | null;
-  category?: string | null;
-  note?: string | null;
-  occured_at?: string | null;
-  date?: string | null;
-  created_at?: string | null;
-};
-
-type EventRow = {
-  id?: string;
-  title?: string | null;
-  location?: string | null;
-  description?: string | null;
-  image_url?: string | null;
-  imageUrl?: string | null;
-  starts_at?: string | null;
-  date?: string | null;
-  time?: string | null;
-};
-
-type NoteRow = {
-  id?: string;
-  title?: string | null;
-  body?: string | null;
-  created_at?: string | null;
-};
-
-function safeDate(input?: string | null): Date | null {
-  if (!input) return null;
-  const normalized = input.includes("T") ? input : input.replace(" ", "T");
-  const d = new Date(normalized);
-  return isNaN(d.getTime()) ? null : d;
-}
-function num(x: number | string | undefined | null): number {
-  if (x == null) return 0;
-  const n = typeof x === "number" ? x : Number.parseFloat(String(x).replace(/[^0-9.-]/g, ""));
-  return isNaN(n) ? 0 : n;
-}
-function sameMonth(d: Date, y: number, m: number) {
-  return d.getFullYear() === y && d.getMonth() === m;
+// Pastikan variabel environment ada
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+  throw new Error("Supabase URL or Anon Key is not defined in environment variables");
 }
 
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+
+// --- TOOL 1: FUNGSI UNTUK MENDAPATKAN RINGKASAN KEUANGAN ---
+async function getFinancialSummary({ year, month, day }: { year?: number; month?: number; day?: number }) {
+  console.log(`Executing getFinancialSummary with: year=${year}, month=${month}, day=${day}`);
+  
+  let query = supabase.from("finance_transactions").select("amount, type, occured_at");
+
+  if (year) {
+    const startDate = new Date(year, month ? month - 1 : 0, day || 1);
+    const endDate = new Date(
+      day ? year : year + (month ? 0 : 1),
+      day ? month! - 1 : (month || 12),
+      day ? day + 1 : 1
+    );
+    query = query.gte('occured_at', startDate.toISOString()).lt('occured_at', endDate.toISOString());
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error("Supabase query error (finance):", error);
+    return { error: "Failed to retrieve financial data from database." };
+  }
+  if (!data || data.length === 0) {
+    return { summary: "No transaction data found for the specified period." };
+  }
+  
+  let totalIncome = 0;
+  let totalExpense = 0;
+  for (const transaction of data) {
+    const amount = Number(transaction.amount) || 0;
+    if (transaction.type === 'income') totalIncome += amount;
+    else if (transaction.type === 'expense') totalExpense += amount;
+  }
+
+  return { period: { year, month, day }, totalIncome, totalExpense, netBalance: totalIncome - totalExpense, transactionCount: data.length };
+}
+
+// --- TOOL 2: FUNGSI UNTUK MENDAPATKAN DAFTAR KEGIATAN ---
+async function getEvents({ startDate, endDate, limit = 10 }: { startDate: string; endDate: string; limit?: number }) {
+  console.log(`Executing getEvents with: startDate=${startDate}, endDate=${endDate}, limit=${limit}`);
+
+  const { data, error } = await supabase
+    .from("events")
+    .select("title, description, location, starts_at")
+    .gte("starts_at", startDate)
+    .lte("starts_at", endDate)
+    .order("starts_at", { ascending: true })
+    .limit(limit);
+
+  if (error) {
+    console.error("Supabase query error (events):", error);
+    return { error: "Failed to retrieve event data from database." };
+  }
+  if (!data || data.length === 0) {
+    return { summary: "No events found for the specified date range." };
+  }
+  
+  // Format data agar lebih mudah dibaca oleh AI
+  return data.map(event => ({
+      title: event.title,
+      location: event.location,
+      description: event.description,
+      schedule: new Date(event.starts_at).toLocaleString('id-ID', {
+          weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      })
+  }));
+}
+
+// --- MAIN API HANDLER ---
 export async function POST(req: Request) {
   try {
-    const { messages }: { messages: UIMessage[] } = await req.json();
+    const { messages }: { messages: CoreMessage[] } = await req.json();
 
     if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
       return new Response(JSON.stringify({ error: "Missing GOOGLE_GENERATIVE_AI_API_KEY" }), { status: 401 });
     }
 
-    const hasSupabase = !!process.env.SUPABASE_URL && !!process.env.SUPABASE_ANON_KEY;
-    const supabase = hasSupabase ? createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!) : null;
-
-    let finance: FinanceRow[] = [];
-    let events: EventRow[] = [];
-    let notes: NoteRow[] = [];
-
-    if (supabase) {
-      const [{ data: f }, { data: e }, { data: n }] = await Promise.all([
-        supabase.from("finance_transactions").select("*").limit(1000),
-        supabase.from("events").select("*").limit(300),
-        supabase.from("notes").select("*").limit(300),
-      ]);
-      finance = (f as FinanceRow[]) || [];
-      events = (e as EventRow[]) || [];
-      notes = (n as NoteRow[]) || [];
-    }
-
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
-
-    type Totals = { income: number; expense: number };
-    const monthlyTotalsByCategory: Record<string, Totals> = {};
-    const financeThisMonth: FinanceRow[] = [];
-
-    for (const row of finance) {
-      const d = safeDate(row.occured_at || row.date || row.created_at);
-
-      if (!d || !sameMonth(d, year, month)) continue;
-      financeThisMonth.push(row);
-      const cat = (row.category || "Lainnya").trim();
-      if (!monthlyTotalsByCategory[cat]) monthlyTotalsByCategory[cat] = { income: 0, expense: 0 };
-      const amount = num(row.amount);
-      if ((row.type || "").toLowerCase() === "income") monthlyTotalsByCategory[cat].income += amount;
-      else monthlyTotalsByCategory[cat].expense += amount;
-    }
-
-    let totalInfaqThisMonth = 0;
-    for (const [cat, totals] of Object.entries(monthlyTotalsByCategory)) {
-      if (cat.toLowerCase().includes("infaq") || cat.toLowerCase().includes("infak")) {
-        totalInfaqThisMonth += totals.income;
-      }
-    }
-
-    let biggestExpenseThisMonth: { amount: number; category: string; date: string; note?: string | null } | null = null;
-    for (const row of financeThisMonth) {
-      if ((row.type || "").toLowerCase() !== "expense") continue;
-      const amount = num(row.amount);
-      if (!biggestExpenseThisMonth || amount > biggestExpenseThisMonth.amount) {
-        biggestExpenseThisMonth = {
-          amount,
-          category: (row.category || "Lainnya").trim(),
-          date: safeDate(row.occured_at || row.date || row.created_at)?.toISOString() || new Date().toISOString(),
-          note: row.note,
-        };
-      }
-    }
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const allNormalizedEvents = events
-      .map((e) => {
-        const starts = safeDate(e.starts_at || (e.date && e.time ? `${e.date}T${e.time}` : e.date || null));
-        return {
-          id: e.id,
-          title: e.title || "",
-          location: e.location || "",
-          description: (e.description || "").slice(0, 200),
-          starts_at: starts ? starts.toISOString() : null,
-        };
-      })
-      .filter((e) => e.title && e.starts_at);
-
-    const upcomingEvents = allNormalizedEvents
-      .filter((e) => new Date(e.starts_at!) >= today)
-      .sort((a, b) => new Date(a.starts_at!).getTime() - new Date(b.starts_at!).getTime())
-      .slice(0, 25);
-
-    const recentPastEvents = allNormalizedEvents
-      .filter((e) => new Date(e.starts_at!) < today)
-      .sort((a, b) => new Date(b.starts_at!).getTime() - new Date(a.starts_at!).getTime())
-      .slice(0, 5);
-
-    const normalizedNotes = notes
-      .map((n) => ({
-        id: n.id,
-        title: n.title || "",
-        body: (n.body || "").slice(0, 1000),
-        created_at: safeDate(n.created_at || null)?.toISOString() || null,
-      }))
-      .slice(0, 50);
-
-    const context = {
-      meta: { generated_at: new Date().toISOString(), month: month + 1, year },
-      finance: {
-        monthlyTotalsByCategory,
-        totalInfaqThisMonth,
-        biggestExpenseThisMonth,
-        countThisMonth: financeThisMonth.length,
-      },
-      events: {
-        upcoming: upcomingEvents,
-        recent_past: recentPastEvents,
-      },
-      notes: normalizedNotes,
-    };
-
-    const system = `Anda adalah asisten AI untuk Masjid Al-Muhajirin Sarimas. Tugas Anda adalah menjawab pertanyaan jamaah berdasarkan KONTEKS JSON di bawah.
-
-ATURAN PENTING:
-1. Jawaban WAJIB berdasarkan data di \`KONTEKS JSON\`. Jangan berasumsi atau mengarang.
-2. Selalu jawab dalam Bahasa Indonesia yang ringkas, sopan, dan jelas.
-3. Jika data yang diminta tidak ada, sampaikan bahwa data tidak tersedia.
-4. Tolak dengan sopan untuk menjawab topik kontroversial, politik, atau perdebatan.
-
-CARA MENGGUNAKAN DATA KEGIATAN:
-- Data kegiatan ada dua: \`events.upcoming\` (akan datang) dan \`events.recent_past\` (lampau terkini).
-- Jika ditanya tentang kegiatan mendatang, UTAMAKAN data dari \`events.upcoming\`.
-- Jika \`events.upcoming\` kosong, Anda BOLEH memberitahu bahwa belum ada jadwal baru dan memberikan contoh kegiatan dari \`events.recent_past\` sebagai referensi.
-
---- KONTEKS JSON ---
-${JSON.stringify(context, null, 2)}`;
-
-    const result = streamText({
+    const result = await streamText({
       model: google("models/gemini-1.5-flash-latest"),
-      system,
+      system: `You are a helpful and friendly assistant for the Al-Muhajirin Sarimas Mosque.
+- You must always answer in Indonesian.
+- You can answer questions about the mosque's finances and events by using the available tools.
+- For dates, the current date is ${new Date().toISOString()}. Use this as a reference to calculate date ranges for user queries like "next week", "this month", "yesterday", etc.
+- When a user asks a vague question (e.g., "ada kegiatan apa?"), assume they are asking about upcoming events for the next 7 days.
+- If a tool returns no data, inform the user clearly that no data was found for that period.
+- Do not answer controversial, political, or sectarian topics.`,
       messages: convertToModelMessages(messages),
+      
+      tools: {
+        // ALAT UNTUK KEUANGAN
+        getFinancialSummary: tool({
+          description: `Get a financial summary (income, expense, balance) for a specific period. 
+            If the user does not specify a year, use the current year (${new Date().getFullYear()}).`,
+          parameters: z.object({
+            year: z.number().describe("The year to get the summary for, e.g., 2024."),
+            month: z.number().optional().describe("The month number (1-12) to get the summary for."),
+            day: z.number().optional().describe("The day of the month to get the summary for."),
+          }),
+          execute: async ({ year, month, day }) => getFinancialSummary({ year, month, day }),
+        }),
+
+        // ALAT BARU UNTUK KEGIATAN
+        getEvents: tool({
+          description: `Get a list of mosque events within a specific date range. 
+            Use this to answer questions about "kegiatan", "acara", "jadwal", "pengajian", etc.
+            You must determine the startDate and endDate from the user's query in YYYY-MM-DD format.`,
+          parameters: z.object({
+            startDate: z.string().describe("The start date for the event search, in YYYY-MM-DD format."),
+            endDate: z.string().describe("The end date for the event search, in YYYY-MM-DD format."),
+            limit: z.number().optional().describe("Maximum number of events to return. Defaults to 10."),
+          }),
+          execute: async ({ startDate, endDate, limit }) => getEvents({ startDate, endDate, limit }),
+        }),
+      },
     });
-    return result.toUIMessageStreamResponse();
-    
+
+    return result.toAIStreamResponse();
+
   } catch (err) {
     console.error(err);
-    return new Response(JSON.stringify({ error: "Failed to process chat request." }), { status: 500 });
+    if (err instanceof Error) {
+        return NextResponse.json({ error: err.message }, { status: 500 });
+    }
+    return NextResponse.json({ error: "An unknown error occurred." }, { status: 500 });
   }
 }
