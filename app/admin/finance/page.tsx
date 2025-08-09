@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-// --- THE FIX IS HERE: Using a relative path ---
-import { supabase } from "../../../lib/supabase-client"
+// --- THE FIX IS HERE: Using the correct relative path to the cleaned-up file ---
+import { supabase } from "../../../lib/supabase/client"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
