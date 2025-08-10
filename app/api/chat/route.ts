@@ -1,3 +1,4 @@
+// app/api/chat/route.ts
 import { google } from "@ai-sdk/google"
 import {
   streamText,
@@ -6,29 +7,9 @@ import {
   convertToModelMessages,
 } from "ai"
 import { createClient } from "@supabase/supabase-js"
-import { z } from "zod"
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30
-
-type FinanceRow = {
-  id?: string
-  amount?: number | string
-  type?: "income" | "expense" | string | null
-  category?: string | null
-  note?: string | null
-  date?: string | null
-  created_at?: string | null
-}
-
-function num(x: number | string | undefined | null): number {
-  if (x == null) return 0
-  const n =
-    typeof x === "number"
-      ? x
-      : Number.parseFloat(String(x).replace(/[^0-9.-]/g, ""))
-  return isNaN(n) ? 0 : n
-}
 
 export async function POST(req: Request) {
   try {
@@ -53,41 +34,66 @@ export async function POST(req: Request) {
       getFinancialData: tool({
         description:
           "Get financial data from the database. Can be used to calculate balances, or list incomes and expenses based on various filters.",
-        parameters: z.object({
-          year: z.number().optional().describe("The year to filter by, e.g., 2024."),
-          month: z
-            .number()
-            .optional()
-            .describe("The month number (1-12) to filter by."),
-          type: z
-            .enum(["income", "expense"])
-            .optional()
-            .describe("Filter for only income or only expenses."),
-          category: z
-            .string()
-            .optional()
-            .describe(
-              "Filter by a specific category, e.g., 'Infaq' or 'Operasional'."
-            ),
-        }),
-        execute: async ({ year, month, type, category }) => {
+        // Use plain JSON Schema to ensure the root is an OBJECT for Gemini
+        parameters: {
+          type: "object",
+          properties: {
+            year: {
+              type: "integer",
+              description: "The year to filter by, e.g., 2024.",
+            },
+            month: {
+              type: "integer",
+              minimum: 1,
+              maximum: 12,
+              description: "The month number (1-12) to filter by.",
+            },
+            type: {
+              type: "string",
+              enum: ["income", "expense"],
+              description: "Filter for only income or only expenses.",
+            },
+            category: {
+              type: "string",
+              description:
+                "Filter by a specific category, e.g., 'Infaq' or 'Operasional'.",
+            },
+          },
+          additionalProperties: false,
+        } as const,
+        execute: async ({
+          year,
+          month,
+          type,
+          category,
+        }: {
+          year?: number
+          month?: number
+          type?: "income" | "expense"
+          category?: string
+        }) => {
           let query = supabase
             .from("finance_transactions")
             .select("type, amount, category, date, note")
 
           if (year && month) {
-            const startDate = new Date(year, month - 1, 1)
-            const endDate = new Date(year, month, 0)
+            // Correct month window:
+            // month is 1-12; start at UTC first-of-month, end at UTC end-of-month
+            const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0))
+            const end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999))
             query = query
-              .gte("date", startDate.toISOString())
-              .lte("date", endDate.toISOString())
+              .gte("date", start.toISOString())
+              .lte("date", end.toISOString())
+          } else if (year && !month) {
+            const start = new Date(Date.UTC(year, 0, 1, 0, 0, 0, 0))
+            const end = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999))
+            query = query
+              .gte("date", start.toISOString())
+              .lte("date", end.toISOString())
           }
-          if (type) {
-            query = query.eq("type", type)
-          }
-          if (category) {
-            query = query.ilike("category", `%${category}%`)
-          }
+
+          if (type) query = query.eq("type", type)
+          if (category) query = query.ilike("category", `%${category}%`)
 
           const { data, error } = await query.limit(500)
           if (error) return { error: error.message }
@@ -103,14 +109,13 @@ export async function POST(req: Request) {
 - Today's date is ${new Date().toISOString()}.`
 
     const result = streamText({
-      model: google("gemini-1.5-flash"),
+      model: google("gemini-2.5-flash"),
       system,
-      messages: convertToModelMessages(messages),
+      messages: convertToModelMessages(messages), // UIMessage -> ModelMessage
       tools,
     })
 
-    // The correct UI-streaming helper for useChat:
-    return result.toUIMessageStreamResponse()
+    return result.toUIMessageStreamResponse() // correct helper for useChat
   } catch (err) {
     console.error(err)
     return new Response(JSON.stringify({ error: "Failed to process chat request." }), {
