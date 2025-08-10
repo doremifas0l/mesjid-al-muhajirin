@@ -1,33 +1,33 @@
-import { google } from "@ai-sdk/google"
-import { streamText, tool, type UIMessage, convertToModelMessages } from "ai" 
-import { createClient } from "@supabase/supabase-js"
-import { z } from "zod"
+import { google } from "@ai-sdk/google";
+// 1. MODIFICATION: Import StreamingTextResponse
+import { streamText, tool, type UIMessage, convertToModelMessages, StreamingTextResponse } from "ai";
+import { createClient } from "@supabase/supabase-js";
+import { z } from "zod";
 
 // Type Definitions
 type FinanceRow = {
-  id?: string
-  amount?: number | string
-  type?: "income" | "expense" | string | null
-  category?: string | null
-  note?: string | null
-  date?: string | null
-  created_at?: string | null
-}
+  id?: string;
+  amount?: number | string;
+  type?: "income" | "expense" | string | null;
+  category?: string | null;
+  note?: string | null;
+  date?: string | null;
+  created_at?: string | null;
+};
 
 // Helper function to safely convert to a number
 function num(x: number | string | undefined | null): number {
-  if (x == null) return 0
-  const n = typeof x === "number" ? x : Number.parseFloat(String(x).replace(/[^0-9.-]/g, ""))
-  return isNaN(n) ? 0 : n
+  if (x == null) return 0;
+  const n = typeof x === "number" ? x : Number.parseFloat(String(x).replace(/[^0-9.-]/g, ""));
+  return isNaN(n) ? 0 : n;
 }
-
 
 export async function POST(req: Request) {
   try {
     const { messages }: { messages: UIMessage[] } = await req.json();
 
     if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY || !process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
-        return new Response(JSON.stringify({ error: "Missing API credentials" }), { status: 401 });
+      return new Response(JSON.stringify({ error: "Missing API credentials" }), { status: 401 });
     }
 
     const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!);
@@ -55,8 +55,8 @@ export async function POST(req: Request) {
             query = query.ilike('category', `%${category}%`);
           }
           const { data, error } = await query.limit(500);
-          if (error) return { toolName: 'getFinancialData', result: { error: error.message }};
-          return { toolName: 'getFinancialData', result: { transactions: data }};
+          if (error) return { toolName: 'getFinancialData', result: { error: error.message } };
+          return { toolName: 'getFinancialData', result: { transactions: data } };
         },
       }),
       // You could add a new tool for events here
@@ -75,7 +75,8 @@ export async function POST(req: Request) {
       tools,
     });
 
-    return result.toAIStreamResponse();
+    // 2. MODIFICATION: Change the return statement to use StreamingTextResponse
+    return new StreamingTextResponse(result.stream);
 
   } catch (err) {
     console.error(err);
