@@ -1,16 +1,18 @@
 // /app/api/chat/route.ts
 
 import { google } from "@ai-sdk/google";
+// MODIFICATION 1: We will import `toAIStream` and remove `StreamingTextResponse`
 import {
   streamText,
   tool,
   type UIMessage,
   convertToModelMessages,
-  StreamingTextResponse, // Use the modern constructor
+  toAIStream,
 } from "ai";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
+// --- No changes in this section ---
 // Type Definitions
 type FinanceRow = {
   id?: string;
@@ -31,12 +33,12 @@ function num(x: number | string | undefined | null): number {
       : Number.parseFloat(String(x).replace(/[^0-9.-]/g, ""));
   return isNaN(n) ? 0 : n;
 }
+// --- End of no-change section ---
 
 export async function POST(req: Request) {
   try {
     const { messages }: { messages: UIMessage[] } = await req.json();
 
-    // Check for essential environment variables
     if (
       !process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
       !process.env.SUPABASE_URL ||
@@ -96,7 +98,6 @@ export async function POST(req: Request) {
           return { toolName: "getFinancialData", result: { transactions: data } };
         },
       }),
-      // You could add a new tool for events here
     };
 
     const system = `You are a helpful assistant for Mesjid Al-Muhajirin Sarimas.
@@ -105,15 +106,16 @@ export async function POST(req: Request) {
 - If the tools return an error or no data, inform the user that the information could not be found.
 - Today's date is ${new Date().toISOString()}.`;
 
-    const result = streamText({
+    const result = await streamText({ // using await here is safer with older versions
       model: google("gemini-1.5-flash"),
       system,
       messages: convertToModelMessages(messages),
       tools,
     });
 
-    // Use the correct constructor for streaming responses
-    return new StreamingTextResponse(result.stream);
+    // MODIFICATION 2: Use the older (v2) syntax to create the stream
+    const stream = toAIStream(result);
+    return new Response(stream);
     
   } catch (err) {
     console.error(err);
