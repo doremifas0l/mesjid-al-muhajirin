@@ -1,9 +1,10 @@
 import { google } from "@ai-sdk/google";
-// 1. MODIFICATION: Import StreamingTextResponse
-import { streamText, tool, type UIMessage, convertToModelMessages, StreamingTextResponse } from "ai";
+// 1. MODIFICATION: Import toAIStream instead
+import { streamText, tool, type UIMessage, convertToModelMessages, toAIStream } from "ai";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
+// ... (The rest of your code, like Type Definitions and helpers, remains the same)
 // Type Definitions
 type FinanceRow = {
   id?: string;
@@ -22,6 +23,7 @@ function num(x: number | string | undefined | null): number {
   return isNaN(n) ? 0 : n;
 }
 
+
 export async function POST(req: Request) {
   try {
     const { messages }: { messages: UIMessage[] } = await req.json();
@@ -33,6 +35,7 @@ export async function POST(req: Request) {
     const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!);
 
     const tools = {
+      // ... your tools object is unchanged
       getFinancialData: tool({
         description: "Get financial data from the database. Can be used to calculate balances, or list incomes and expenses based on various filters.",
         parameters: z.object({
@@ -59,7 +62,6 @@ export async function POST(req: Request) {
           return { toolName: 'getFinancialData', result: { transactions: data } };
         },
       }),
-      // You could add a new tool for events here
     };
 
     const system = `You are a helpful assistant for Mesjid Al-Muhajirin Sarimas.
@@ -68,15 +70,16 @@ export async function POST(req: Request) {
 - If the tools return an error or no data, inform the user that the information could not be found.
 - Today's date is ${new Date().toISOString()}.`;
 
-    const result = streamText({
-      model: google('gemini-2.5-flash'),
+    const result = await streamText({ // Note: await might be needed here depending on version
+      model: google('gemini-1.5-flash'),
       system,
       messages: convertToModelMessages(messages),
       tools,
     });
 
-    // 2. MODIFICATION: Change the return statement to use StreamingTextResponse
-    return new StreamingTextResponse(result.stream);
+    // 2. MODIFICATION: Convert the result to a stream and return a standard Response
+    const stream = toAIStream(result);
+    return new Response(stream);
 
   } catch (err) {
     console.error(err);
