@@ -1,3 +1,5 @@
+// components/finance-preview.tsx
+
 "use client"
 
 import { useMemo, useState } from "react"
@@ -12,7 +14,7 @@ type FinanceItem = {
   amount: number
   category: string
   note?: string | null
-  occured_at: string // Sesuai dengan nama kolom di Supabase
+  occured_at: string
 }
 
 type FinancePreviewProps = {
@@ -38,13 +40,12 @@ export default function FinancePreview({ initialItems, initialCategories }: Fina
   }, [filtered])
 
   const recent = useMemo(() => {
-    // Pastikan properti date diurutkan dengan benar menggunakan 'occured_at'
     return [...filtered].sort((a, b) => new Date(b.occured_at).getTime() - new Date(a.occured_at).getTime()).slice(0, 5)
   }, [filtered])
 
-  // PASTIKAN ADA TANDA KURUNG BUKA SETELAH `return`
   return (
     <section id="finance" className="mx-auto max-w-6xl px-4 py-12 sm:py-16">
+      {/* ... sisa JSX tidak berubah ... */}
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h2 className="text-2xl sm:text-3xl font-semibold text-neutral-900">Keuangan</h2>
@@ -70,7 +71,7 @@ export default function FinancePreview({ initialItems, initialCategories }: Fina
         <Card>
           <CardHeader>
             <CardTitle className="text-neutral-900">Total Pemasukan</CardTitle>
-          </CardHeader>
+          </Header>
           <CardContent className="text-2xl font-semibold text-emerald-700">
             {totals.income.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
           </CardContent>
@@ -78,7 +79,7 @@ export default function FinancePreview({ initialItems, initialCategories }: Fina
         <Card>
           <CardHeader>
             <CardTitle className="text-neutral-900">Total Pengeluaran</CardTitle>
-          </CardHeader>
+          </Header>
           <CardContent className="text-2xl font-semibold text-rose-700">
             {totals.expense.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
           </CardContent>
@@ -86,7 +87,7 @@ export default function FinancePreview({ initialItems, initialCategories }: Fina
         <Card>
           <CardHeader>
             <CardTitle className="text-neutral-900">Saldo</CardTitle>
-          </CardHeader>
+          </Header>
           <CardContent
             className={"text-2xl font-semibold " + (totals.balance >= 0 ? "text-neutral-900" : "text-rose-700")}
           >
