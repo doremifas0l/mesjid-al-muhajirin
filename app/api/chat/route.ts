@@ -1,42 +1,38 @@
-// /app/api/chat/route.ts
-
-import { google } from "@ai-sdk/google";
-// We only need these core imports
+import { google } from "@ai-sdk/google"
 import {
   streamText,
   tool,
   type UIMessage,
   convertToModelMessages,
-} from "ai";
-import { createClient } from "@supabase/supabase-js";
-import { z } from "zod";
+} from "ai"
+import { createClient } from "@supabase/supabase-js"
+import { z } from "zod"
 
-// --- No changes in this section ---
-// Type Definitions
+// Allow streaming responses up to 30 seconds
+export const maxDuration = 30
+
 type FinanceRow = {
-  id?: string;
-  amount?: number | string;
-  type?: "income" | "expense" | string | null;
-  category?: string | null;
-  note?: string | null;
-  date?: string | null;
-  created_at?: string | null;
-};
+  id?: string
+  amount?: number | string
+  type?: "income" | "expense" | string | null
+  category?: string | null
+  note?: string | null
+  date?: string | null
+  created_at?: string | null
+}
 
-// Helper function to safely convert to a number
 function num(x: number | string | undefined | null): number {
-  if (x == null) return 0;
+  if (x == null) return 0
   const n =
     typeof x === "number"
       ? x
-      : Number.parseFloat(String(x).replace(/[^0-9.-]/g, ""));
-  return isNaN(n) ? 0 : n;
+      : Number.parseFloat(String(x).replace(/[^0-9.-]/g, ""))
+  return isNaN(n) ? 0 : n
 }
-// --- End of no-change section ---
 
 export async function POST(req: Request) {
   try {
-    const { messages }: { messages: UIMessage[] } = await req.json();
+    const { messages }: { messages: UIMessage[] } = await req.json()
 
     if (
       !process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
@@ -45,13 +41,13 @@ export async function POST(req: Request) {
     ) {
       return new Response(JSON.stringify({ error: "Missing API credentials" }), {
         status: 401,
-      });
+      })
     }
 
     const supabase = createClient(
       process.env.SUPABASE_URL!,
       process.env.SUPABASE_ANON_KEY!
-    );
+    )
 
     const tools = {
       getFinancialData: tool({
@@ -77,49 +73,48 @@ export async function POST(req: Request) {
         execute: async ({ year, month, type, category }) => {
           let query = supabase
             .from("finance_transactions")
-            .select("type, amount, category, date, note");
+            .select("type, amount, category, date, note")
+
           if (year && month) {
-            const startDate = new Date(year, month - 1, 1);
-            const endDate = new Date(year, month, 0);
+            const startDate = new Date(year, month - 1, 1)
+            const endDate = new Date(year, month, 0)
             query = query
               .gte("date", startDate.toISOString())
-              .lte("date", endDate.toISOString());
+              .lte("date", endDate.toISOString())
           }
           if (type) {
-            query = query.eq("type", type);
+            query = query.eq("type", type)
           }
           if (category) {
-            query = query.ilike("category", `%${category}%`);
+            query = query.ilike("category", `%${category}%`)
           }
-          const { data, error } = await query.limit(500);
-          if (error)
-            return { toolName: "getFinancialData", result: { error: error.message } };
-          return { toolName: "getFinancialData", result: { transactions: data } };
+
+          const { data, error } = await query.limit(500)
+          if (error) return { error: error.message }
+          return { transactions: data }
         },
       }),
-    };
+    }
 
     const system = `You are a helpful assistant for Mesjid Al-Muhajirin Sarimas.
 - Answer user questions by calling the available tools to get the necessary data.
 - If the tools provide data, synthesize the answer based on that data.
 - If the tools return an error or no data, inform the user that the information could not be found.
-- Today's date is ${new Date().toISOString()}.`;
+- Today's date is ${new Date().toISOString()}.`
 
     const result = streamText({
       model: google("gemini-1.5-flash"),
       system,
       messages: convertToModelMessages(messages),
       tools,
-    });
+    })
 
-    // THE CORRECT RETURN STATEMENT FROM YOUR WORKING APP
-    return result.toUIStreamResponse();
-    
+    // The correct UI-streaming helper for useChat:
+    return result.toUIMessageStreamResponse()
   } catch (err) {
-    console.error(err);
-    return new Response(
-      JSON.stringify({ error: "Failed to process chat request." }),
-      { status: 500 }
-    );
+    console.error(err)
+    return new Response(JSON.stringify({ error: "Failed to process chat request." }), {
+      status: 500,
+    })
   }
 }
