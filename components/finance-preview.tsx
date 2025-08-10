@@ -1,5 +1,3 @@
-// components/finance-preview.tsx
-
 "use client"
 
 import { useMemo, useState } from "react"
