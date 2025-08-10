@@ -121,7 +121,7 @@ export default function FinanceAdminPage() {
       amount: amountNum,
       type: form.type,
       note: form.note.trim() || null,
-      category: form.category.trim() || (form.type === "income" ? "Pemasukan Lain" : "Pengeluaran Lain"),
+      category: form.category.trim() || "Keuangan Masjid",
     })
 
     if (error) {
