@@ -1,10 +1,16 @@
+// /app/api/chat/route.ts
+
 import { google } from "@ai-sdk/google";
-// 1. MODIFICATION: Import toAIStream instead
-import { streamText, tool, type UIMessage, convertToModelMessages, toAIStream } from "ai";
+import {
+  streamText,
+  tool,
+  type UIMessage,
+  convertToModelMessages,
+  StreamingTextResponse, // Use the modern constructor
+} from "ai";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
-// ... (The rest of your code, like Type Definitions and helpers, remains the same)
 // Type Definitions
 type FinanceRow = {
   id?: string;
@@ -19,49 +25,78 @@ type FinanceRow = {
 // Helper function to safely convert to a number
 function num(x: number | string | undefined | null): number {
   if (x == null) return 0;
-  const n = typeof x === "number" ? x : Number.parseFloat(String(x).replace(/[^0-9.-]/g, ""));
+  const n =
+    typeof x === "number"
+      ? x
+      : Number.parseFloat(String(x).replace(/[^0-9.-]/g, ""));
   return isNaN(n) ? 0 : n;
 }
-
 
 export async function POST(req: Request) {
   try {
     const { messages }: { messages: UIMessage[] } = await req.json();
 
-    if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY || !process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
-      return new Response(JSON.stringify({ error: "Missing API credentials" }), { status: 401 });
+    // Check for essential environment variables
+    if (
+      !process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
+      !process.env.SUPABASE_URL ||
+      !process.env.SUPABASE_ANON_KEY
+    ) {
+      return new Response(JSON.stringify({ error: "Missing API credentials" }), {
+        status: 401,
+      });
     }
 
-    const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!);
+    const supabase = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_ANON_KEY!
+    );
 
     const tools = {
-      // ... your tools object is unchanged
       getFinancialData: tool({
-        description: "Get financial data from the database. Can be used to calculate balances, or list incomes and expenses based on various filters.",
+        description:
+          "Get financial data from the database. Can be used to calculate balances, or list incomes and expenses based on various filters.",
         parameters: z.object({
           year: z.number().optional().describe("The year to filter by, e.g., 2024."),
-          month: z.number().optional().describe("The month number (1-12) to filter by."),
-          type: z.enum(["income", "expense"]).optional().describe("Filter for only income or only expenses."),
-          category: z.string().optional().describe("Filter by a specific category, e.g., 'Infaq' or 'Operasional'."),
+          month: z
+            .number()
+            .optional()
+            .describe("The month number (1-12) to filter by."),
+          type: z
+            .enum(["income", "expense"])
+            .optional()
+            .describe("Filter for only income or only expenses."),
+          category: z
+            .string()
+            .optional()
+            .describe(
+              "Filter by a specific category, e.g., 'Infaq' or 'Operasional'."
+            ),
         }),
         execute: async ({ year, month, type, category }) => {
-          let query = supabase.from("finance_transactions").select("type, amount, category, date, note");
+          let query = supabase
+            .from("finance_transactions")
+            .select("type, amount, category, date, note");
           if (year && month) {
             const startDate = new Date(year, month - 1, 1);
             const endDate = new Date(year, month, 0);
-            query = query.gte('date', startDate.toISOString()).lte('date', endDate.toISOString());
+            query = query
+              .gte("date", startDate.toISOString())
+              .lte("date", endDate.toISOString());
           }
           if (type) {
-            query = query.eq('type', type);
+            query = query.eq("type", type);
           }
           if (category) {
-            query = query.ilike('category', `%${category}%`);
+            query = query.ilike("category", `%${category}%`);
           }
           const { data, error } = await query.limit(500);
-          if (error) return { toolName: 'getFinancialData', result: { error: error.message } };
-          return { toolName: 'getFinancialData', result: { transactions: data } };
+          if (error)
+            return { toolName: "getFinancialData", result: { error: error.message } };
+          return { toolName: "getFinancialData", result: { transactions: data } };
         },
       }),
+      // You could add a new tool for events here
     };
 
     const system = `You are a helpful assistant for Mesjid Al-Muhajirin Sarimas.
@@ -70,19 +105,21 @@ export async function POST(req: Request) {
 - If the tools return an error or no data, inform the user that the information could not be found.
 - Today's date is ${new Date().toISOString()}.`;
 
-    const result = await streamText({ // Note: await might be needed here depending on version
-      model: google('gemini-1.5-flash'),
+    const result = streamText({
+      model: google("gemini-1.5-flash"),
       system,
       messages: convertToModelMessages(messages),
       tools,
     });
 
-    // 2. MODIFICATION: Convert the result to a stream and return a standard Response
-    const stream = toAIStream(result);
-    return new Response(stream);
-
+    // Use the correct constructor for streaming responses
+    return new StreamingTextResponse(result.stream);
+    
   } catch (err) {
     console.error(err);
-    return new Response(JSON.stringify({ error: "Failed to process chat request." }), { status: 500 });
+    return new Response(
+      JSON.stringify({ error: "Failed to process chat request." }),
+      { status: 500 }
+    );
   }
 }
