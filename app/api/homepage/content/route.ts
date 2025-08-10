@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/lib/supabase/admin"
 
+// Define the type for what the body might contain
 type HomeContent = {
   site_title?: string
   hero_tag?: string
@@ -13,6 +14,8 @@ type HomeContent = {
   youtube_title?: string
   youtube_subtitle?: string
   featured_video_url?: string
+  // This is a helper type for the dynamic payload
+  [key: string]: any 
 }
 
 export async function GET() {
@@ -25,22 +28,42 @@ export async function GET() {
 export async function PUT(req: Request) {
   const admin = getSupabaseAdmin()
   const body = (await req.json()) as HomeContent
-  const payload = {
-    id: "default",
-    site_title: body.site_title ?? null,
-    hero_tag: body.hero_tag ?? null,
-    announcement: body.announcement ?? null,
-    about_title: body.about_title ?? null,
-    about_body: body.about_body ?? null,
-    about_bullets: Array.isArray(body.about_bullets) ? body.about_bullets : [],
-    events_title: body.events_title ?? null,
-    events_subtitle: body.events_subtitle ?? null,
-    youtube_title: body.youtube_title ?? null,
-    youtube_subtitle: body.youtube_subtitle ?? null,
-    featured_video_url: body.featured_video_url ?? null,
-    updated_at: new Date().toISOString(),
+
+  // --- START OF FIX ---
+
+  // Create a dynamic payload object.
+  // This will only contain the fields that were actually sent in the request.
+  const payload: HomeContent = {}
+  
+  // List of all possible keys that can be updated.
+  const validKeys: (keyof HomeContent)[] = [
+    "site_title", "hero_tag", "announcement", 
+    "about_title", "about_body", "about_bullets", 
+    "events_title", "events_subtitle", "youtube_title", 
+    "youtube_subtitle", "featured_video_url"
+  ];
+  
+  // Populate the payload with data from the request body if the key is valid.
+  for (const key of validKeys) {
+    if (body[key] !== undefined) {
+      payload[key] = body[key]
+    }
   }
-  const { data, error } = await admin.from("homepage_content").upsert(payload).select().single()
+
+  // Always update the timestamp
+  payload.updated_at = new Date().toISOString()
+
+  // --- END OF FIX ---
+
+  // Use .update() instead of .upsert() since we are only modifying an existing row.
+  // The dynamically built payload ensures we only change the fields that were sent.
+  const { data, error } = await admin
+    .from("homepage_content")
+    .update(payload)
+    .eq("id", "default")
+    .select()
+    .single()
+    
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ data })
 }
