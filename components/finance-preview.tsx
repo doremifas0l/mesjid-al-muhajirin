@@ -1,5 +1,3 @@
-// components/finance-preview.tsx
-
 "use client"
 
 import { useMemo, useState } from "react"
@@ -8,31 +6,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 type FinanceType = "income" | "expense"
 
-// Gunakan tipe yang sama dengan di admin page
 type FinanceItem = {
   id: string
   type: FinanceType
   amount: number
   category: string
   note?: string | null
-  // Sesuaikan nama field dengan tabel Supabase Anda (occured_at)
-  occured_at: string
+  occured_at: string // Sesuai dengan nama kolom di Supabase
 }
 
-// Definisikan tipe untuk props
 type FinancePreviewProps = {
   initialItems: FinanceItem[]
   initialCategories: string[]
 }
 
 export default function FinancePreview({ initialItems, initialCategories }: FinancePreviewProps) {
-  // Inisialisasi state dengan data yang diterima dari props
   const [items] = useState<FinanceItem[]>(initialItems)
   const [categories] = useState<string[]>(["Semua", ...initialCategories])
   const [selected, setSelected] = useState<string>("Semua")
-
-  // HAPUS SELURUH BLOK useEffect() YANG MENGAMBIL DATA DARI localStorage.
-  // useEffect(() => { ... }, []) -> INI DIHAPUS
 
   const filtered = useMemo(() => {
     if (selected === "Semua") return items
@@ -46,11 +37,12 @@ export default function FinancePreview({ initialItems, initialCategories }: Fina
     return { income, expense, balance }
   }, [filtered])
 
-  // Pastikan properti 'date' diganti menjadi 'occured_at' sesuai dengan data dari Supabase
   const recent = useMemo(() => {
+    // Pastikan properti date diurutkan dengan benar menggunakan 'occured_at'
     return [...filtered].sort((a, b) => new Date(b.occured_at).getTime() - new Date(a.occured_at).getTime()).slice(0, 5)
   }, [filtered])
 
+  // PASTIKAN ADA TANDA KURUNG BUKA SETELAH `return`
   return (
     <section id="finance" className="mx-auto max-w-6xl px-4 py-12 sm:py-16">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
@@ -75,11 +67,10 @@ export default function FinancePreview({ initialItems, initialCategories }: Fina
       </div>
 
       <div className="mt-6 grid gap-6 sm:grid-cols-3">
-        {/* ... Card Pemasukan, Pengeluaran, Saldo (Tidak ada perubahan di sini) ... */}
-         <Card>
+        <Card>
           <CardHeader>
             <CardTitle className="text-neutral-900">Total Pemasukan</CardTitle>
-          </Header>
+          </CardHeader>
           <CardContent className="text-2xl font-semibold text-emerald-700">
             {totals.income.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
           </CardContent>
@@ -87,7 +78,7 @@ export default function FinancePreview({ initialItems, initialCategories }: Fina
         <Card>
           <CardHeader>
             <CardTitle className="text-neutral-900">Total Pengeluaran</CardTitle>
-          </Header>
+          </CardHeader>
           <CardContent className="text-2xl font-semibold text-rose-700">
             {totals.expense.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
           </CardContent>
@@ -121,7 +112,6 @@ export default function FinancePreview({ initialItems, initialCategories }: Fina
                     {it.type === "income" ? "Pemasukan" : "Pengeluaran"} • {it.category}
                   </div>
                   <div className="text-sm text-neutral-700">
-                    {/* Pastikan menggunakan occured_at */}
                     {new Date(it.occured_at).toLocaleDateString("id-ID")} •{" "}
                     {it.amount.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
                   </div>
