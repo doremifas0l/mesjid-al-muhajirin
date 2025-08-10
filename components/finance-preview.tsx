@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
@@ -11,19 +11,45 @@ type FinanceItem = {
   type: FinanceType
   amount: number
   category: string
-  note?: string | null
-  occured_at: string
+  note?: string
+  date: string // ISO
 }
 
-type FinancePreviewProps = {
-  initialItems: FinanceItem[]
-  initialCategories: string[]
-}
+const CATEGORIES_KEY = "masjid_finance_categories"
 
-export default function FinancePreview({ initialItems, initialCategories }: FinancePreviewProps) {
-  const [items] = useState<FinanceItem[]>(initialItems)
-  const [categories] = useState<string[]>(["Semua", ...initialCategories])
+export default function FinancePreview() {
+  const [items, setItems] = useState<FinanceItem[]>([])
+  const [categories, setCategories] = useState<string[]>([])
   const [selected, setSelected] = useState<string>("Semua")
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const raw = localStorage.getItem("masjid_finance")
+    if (raw) {
+      try {
+        setItems(JSON.parse(raw) as FinanceItem[])
+      } catch {
+        setItems([])
+      }
+    }
+    const cats = localStorage.getItem(CATEGORIES_KEY)
+    if (cats) {
+      try {
+        const parsed = JSON.parse(cats) as string[]
+        const allCats = new Set(parsed)
+        // Also merge any categories present in items
+        ;(JSON.parse(raw || "[]") as FinanceItem[]).forEach((i) => allCats.add(i.category))
+        setCategories(["Semua", ...Array.from(allCats)])
+      } catch {
+        setCategories(["Semua"])
+      }
+    } else {
+      // derive from items only
+      const setCats = new Set<string>()
+      ;(JSON.parse(raw || "[]") as FinanceItem[]).forEach((i) => setCats.add(i.category))
+      setCategories(["Semua", ...Array.from(setCats)])
+    }
+  }, [])
 
   const filtered = useMemo(() => {
     if (selected === "Semua") return items
@@ -38,7 +64,7 @@ export default function FinancePreview({ initialItems, initialCategories }: Fina
   }, [filtered])
 
   const recent = useMemo(() => {
-    return [...filtered].sort((a, b) => new Date(b.occured_at).getTime() - new Date(a.occured_at).getTime()).slice(0, 5)
+    return [...filtered].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5)
   }, [filtered])
 
   return (
@@ -68,27 +94,27 @@ export default function FinancePreview({ initialItems, initialCategories }: Fina
         <Card>
           <CardHeader>
             <CardTitle className="text-neutral-900">Total Pemasukan</CardTitle>
-          </Header>
+          </CardHeader>
           <CardContent className="text-2xl font-semibold text-emerald-700">
-            {totals.income.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
+            {totals.income.toLocaleString(undefined, { style: "currency", currency: "IDR" })}
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
             <CardTitle className="text-neutral-900">Total Pengeluaran</CardTitle>
-          </Header>
+          </CardHeader>
           <CardContent className="text-2xl font-semibold text-rose-700">
-            {totals.expense.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
+            {totals.expense.toLocaleString(undefined, { style: "currency", currency: "IDR" })}
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
             <CardTitle className="text-neutral-900">Saldo</CardTitle>
-          </Header>
+          </CardHeader>
           <CardContent
             className={"text-2xl font-semibold " + (totals.balance >= 0 ? "text-neutral-900" : "text-rose-700")}
           >
-            {totals.balance.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
+            {totals.balance.toLocaleString(undefined, { style: "currency", currency: "IDR" })}
           </CardContent>
         </Card>
       </div>
@@ -110,8 +136,8 @@ export default function FinancePreview({ initialItems, initialCategories }: Fina
                     {it.type === "income" ? "Pemasukan" : "Pengeluaran"} • {it.category}
                   </div>
                   <div className="text-sm text-neutral-700">
-                    {new Date(it.occured_at).toLocaleDateString("id-ID")} •{" "}
-                    {it.amount.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
+                    {new Date(it.date).toLocaleDateString()} •{" "}
+                    {it.amount.toLocaleString(undefined, { style: "currency", currency: "IDR" })}
                   </div>
                   {it.note && <p className="mt-1 text-sm text-neutral-600">{it.note}</p>}
                 </div>
