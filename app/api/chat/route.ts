@@ -1,13 +1,12 @@
 // /app/api/chat/route.ts
 
 import { google } from "@ai-sdk/google";
-// MODIFICATION 1: We will import `toAIStream` and remove `StreamingTextResponse`
+// We only need these core imports
 import {
   streamText,
   tool,
   type UIMessage,
   convertToModelMessages,
-  toAIStream,
 } from "ai";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
@@ -106,16 +105,15 @@ export async function POST(req: Request) {
 - If the tools return an error or no data, inform the user that the information could not be found.
 - Today's date is ${new Date().toISOString()}.`;
 
-    const result = await streamText({ // using await here is safer with older versions
+    const result = streamText({
       model: google("gemini-1.5-flash"),
       system,
       messages: convertToModelMessages(messages),
       tools,
     });
 
-    // MODIFICATION 2: Use the older (v2) syntax to create the stream
-    const stream = toAIStream(result);
-    return new Response(stream);
+    // THE CORRECT RETURN STATEMENT FROM YOUR WORKING APP
+    return result.toUIStreamResponse();
     
   } catch (err) {
     console.error(err);
