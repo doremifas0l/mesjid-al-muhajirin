@@ -1,112 +1,102 @@
-import { NextResponse } from "next/server"
-// Ensure you are importing your SERVER-SIDE admin client
-import { getSupabaseAdmin } from "@/lib/supabase/admin"
+"use client"
 
-// GET handler: Fetches transactions, can be filtered by category NAME
-export async function GET(req: Request) {
-  const url = new URL(req.url)
-  // MODIFIED: We now filter by 'category' which is a string, not 'categoryId'
-  const category = url.searchParams.get("category")
-  const admin = getSupabaseAdmin()
+import { useEffect, useMemo, useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-  let query = admin
-    .from("finance_transactions")
-    .select("*")
-    .order("occured_at", { ascending: false })
-
-  // MODIFIED: The filter now uses the text 'category' column
-  if (category) {
-    query = query.eq("category", category)
-  }
-
-  const { data, error } = await query
-  if (error) {
-    console.error("Finance GET Error:", error.message)
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-  return NextResponse.json({ data })
+// The data structure returned by your API
+type FinanceTransaction = {
+  id: string
+  occured_at: string
+  amount: number
+  type: "income" | "expense"
+  category: string
+  note: string | null
 }
 
-// POST handler: Creates a new transaction using the category NAME
-export async function POST(req: Request) {
-  const admin = getSupabaseAdmin()
-  // MODIFIED: The body now expects a 'category' string
-  const body = (await req.json()) as {
-    occured_at: string
-    amount: number
-    type: "income" | "expense"
-    category?: string | null // Changed from category_id
-    note?: string | null
-  }
+export default function KeuanganPage() {
+  const [items, setItems] = useState<FinanceTransaction[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  if (!body?.occured_at || !body?.amount || !body?.type) {
-    return NextResponse.json({ error: "Missing occured_at, amount or type" }, { status: 400 })
-  }
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        // Fetch data from your internal API route
+        const response = await fetch('/api/finance/transactions');
+        if (!response.ok) {
+          throw new Error('Gagal mengambil data dari server.');
+        }
+        const result = await response.json();
+        setItems(result.data || []);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Terjadi kesalahan tidak diketahui.');
+      } finally {
+        setLoading(false);
+      }
+    }
 
-  // Set a default category if none is provided
-  const transactionData = {
-    ...body,
-    category: body.category || "Keuangan Masjid",
-  }
+    fetchData();
+  }, []);
 
-  const { data, error } = await admin
-    .from("finance_transactions")
-    .insert(transactionData)
-    .select()
-    .single()
+  const totals = useMemo(() => {
+    const income = items.filter((i) => i.type === "income").reduce((s, i) => s + i.amount, 0);
+    const expense = items.filter((i) => i.type === "expense").reduce((s, i) => s + i.amount, 0);
+    const balance = income - expense;
+    return { income, expense, balance };
+  }, [items]);
+
+  if (loading) {
+    return <div className="p-8 text-center">Memuat data keuangan...</div>;
+  }
 
   if (error) {
-    console.error("Finance POST Error:", error.message)
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-  return NextResponse.json({ data })
-}
-
-// PUT handler: Updates a transaction using the category NAME
-export async function PUT(req: Request) {
-  const admin = getSupabaseAdmin()
-  // MODIFIED: The body now expects a 'category' string
-  const body = (await req.json()) as {
-    id: string
-    occured_at?: string
-    amount?: number
-    type?: "income" | "expense"
-    category?: string | null // Changed from category_id
-    note?: string | null
+    return <div className="p-8 text-center text-red-600">{error}</div>;
   }
 
-  if (!body?.id) {
-    return NextResponse.json({ error: "Missing id" }, { status: 400 })
-  }
+  return (
+    <div className="mx-auto max-w-6xl px-4 py-8 sm:py-12">
+      <h1 className="text-2xl sm:text-3xl font-semibold text-neutral-900">Keuangan</h1>
+      <p className="text-neutral-600">Ringkasan pemasukan, pengeluaran, dan saldo.</p>
 
-  const { data, error } = await admin
-    .from("finance_transactions")
-    .update(body)
-    .eq("id", body.id)
-    .select()
-    .single()
+      <div className="mt-6 grid gap-6 sm:grid-cols-3">
+        <Card>
+          <CardHeader><CardTitle className="text-neutral-900">Total Pemasukan</CardTitle></CardHeader>
+          <CardContent className="text-2xl font-semibold text-emerald-700">
+            {totals.income.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle className="text-neutral-900">Total Pengeluaran</CardTitle></CardHeader>
+          <CardContent className="text-2xl font-semibold text-rose-700">
+            {totals.expense.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle className="text-neutral-900">Saldo</CardTitle></CardHeader>
+          <CardContent className={"text-2xl font-semibold " + (totals.balance >= 0 ? "text-neutral-900" : "text-rose-700")}>
+            {totals.balance.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
+          </CardContent>
+        </Card>
+      </div>
 
-  if (error) {
-    console.error("Finance PUT Error:", error.message)
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-  return NextResponse.json({ data })
-}
-
-// DELETE handler: No changes needed, it works correctly by ID
-export async function DELETE(req: Request) {
-  const admin = getSupabaseAdmin()
-  const { id } = (await req.json()) as { id?: string }
-
-  if (!id) {
-    return NextResponse.json({ error: "Missing id" }, { status: 400 })
-  }
-
-  const { error } = await admin.from("finance_transactions").delete().eq("id", id)
-
-  if (error) {
-    console.error("Finance DELETE Error:", error.message)
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-  return NextResponse.json({ ok: true })
+      <Card className="mt-6">
+        <CardHeader><CardTitle className="text-neutral-900">Transaksi Terbaru</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          {items.length === 0 ? (
+            <p className="text-neutral-600">Belum ada transaksi yang tercatat.</p>
+          ) : (
+            items.slice(0, 10).map((it) => ( // Show latest 10 transactions
+              <div key={it.id} className="flex items-start justify-between gap-3 rounded-md border p-3">
+                <div>
+                  <div className="font-medium text-neutral-900">{it.type === "income" ? "Pemasukan" : "Pengeluaran"} • {it.category}</div>
+                  <div className="text-sm text-neutral-700">{new Date(it.occured_at).toLocaleDateString("id-ID")} • {it.amount.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}</div>
+                  {it.note && <p className="mt-1 text-sm text-neutral-600">{it.note}</p>}
+                </div>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
