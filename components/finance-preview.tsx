@@ -45,7 +45,6 @@ export default function FinancePreview({ initialItems, initialCategories }: Fina
 
   return (
     <section id="finance" className="mx-auto max-w-6xl px-4 py-12 sm:py-16">
-      {/* ... sisa JSX tidak berubah ... */}
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h2 className="text-2xl sm:text-3xl font-semibold text-neutral-900">Keuangan</h2>
