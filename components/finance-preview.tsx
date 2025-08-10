@@ -1,151 +1,194 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import Link from "next/link"
+import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { idrFormatter, shortIdrFormatter } from "@/lib/formatter"
 
-type FinanceType = "income" | "expense"
-
-type FinanceItem = {
-  id: string
-  type: FinanceType
-  amount: number
-  category: string
-  note?: string
-  date: string // ISO
+// Types for the expected data from the API
+type Rekap = { date: string; amount: number }
+type Transaction = { id: string; label: string; amount: number }
+type FinanceData = {
+  rekap: Rekap[]
+  pemasukan: Transaction[]
+  pengeluaran: Transaction[]
 }
 
-const CATEGORIES_KEY = "masjid_finance_categories"
+// --- NEW ---
+// Define the possible time ranges for type safety
+type TimeRange = "monthly" | "yearly" | "all"
 
 export default function FinancePreview() {
-  const [items, setItems] = useState<FinanceItem[]>([])
-  const [categories, setCategories] = useState<string[]>([])
-  const [selected, setSelected] = useState<string>("Semua")
+  const [data, setData] = useState<FinanceData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+  
+  // --- NEW ---
+  // State to manage the selected time range. Default to 'monthly'.
+  const [timeRange, setTimeRange] = useState<TimeRange>("monthly")
 
   useEffect(() => {
-    if (typeof window === "undefined") return
-    const raw = localStorage.getItem("masjid_finance")
-    if (raw) {
+    // This function will now run whenever 'timeRange' changes.
+    const fetchData = async () => {
+      // --- MODIFIED ---
+      // Set loading to true every time we fetch new data
+      setLoading(true)
+      setError(false)
+
       try {
-        setItems(JSON.parse(raw) as FinanceItem[])
-      } catch {
-        setItems([])
+        // Pass the selected timeRange as a query parameter to the API
+        const res = await fetch(`/api/finance/rekap?range=${timeRange}`)
+        if (!res.ok) throw new Error("Gagal mengambil data")
+        const json = await res.json()
+        setData(json.data)
+      } catch (e) {
+        console.error(e)
+        setError(true)
+      } finally {
+        setLoading(false)
       }
     }
-    const cats = localStorage.getItem(CATEGORIES_KEY)
-    if (cats) {
-      try {
-        const parsed = JSON.parse(cats) as string[]
-        const allCats = new Set(parsed)
-        // Also merge any categories present in items
-        ;(JSON.parse(raw || "[]") as FinanceItem[]).forEach((i) => allCats.add(i.category))
-        setCategories(["Semua", ...Array.from(allCats)])
-      } catch {
-        setCategories(["Semua"])
-      }
-    } else {
-      // derive from items only
-      const setCats = new Set<string>()
-      ;(JSON.parse(raw || "[]") as FinanceItem[]).forEach((i) => setCats.add(i.category))
-      setCategories(["Semua", ...Array.from(setCats)])
+    fetchData()
+  }, [timeRange]) // --- MODIFIED --- Dependency array now includes 'timeRange'
+
+  const chartData = useMemo(() => {
+    if (!data?.rekap) return []
+    return data.rekap.map((d) => ({ name: new Date(d.date).toLocaleDateString("id-ID"), amount: d.amount }))
+  }, [data])
+
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="rounded-lg border bg-background p-2 shadow-sm">
+          <p className="text-sm font-bold text-neutral-800">{idrFormatter(payload[0].value)}</p>
+          <p className="text-xs text-muted-foreground">{label}</p>
+        </div>
+      )
     }
-  }, [])
+    return null
+  }
 
-  const filtered = useMemo(() => {
-    if (selected === "Semua") return items
-    return items.filter((i) => i.category === selected)
-  }, [items, selected])
-
-  const totals = useMemo(() => {
-    const income = filtered.filter((i) => i.type === "income").reduce((s, i) => s + i.amount, 0)
-    const expense = filtered.filter((i) => i.type === "expense").reduce((s, i) => s + i.amount, 0)
-    const balance = income - expense
-    return { income, expense, balance }
-  }, [filtered])
-
-  const recent = useMemo(() => {
-    return [...filtered].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5)
-  }, [filtered])
-
-  return (
-    <section id="finance" className="mx-auto max-w-6xl px-4 py-12 sm:py-16">
-      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
-        <div>
-          <h2 className="text-2xl sm:text-3xl font-semibold text-neutral-900">Keuangan</h2>
-          <p className="mt-1 text-sm text-neutral-600">Ringkasan pemasukan, pengeluaran, dan saldo.</p>
-        </div>
-        <div className="w-full sm:w-64">
-          <Select value={selected} onValueChange={setSelected}>
-            <SelectTrigger>
-              <SelectValue placeholder="Filter kategori" />
-            </SelectTrigger>
-            <SelectContent>
-              {categories.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      <div className="mt-6 grid gap-6 sm:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-neutral-900">Total Pemasukan</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold text-emerald-700">
-            {totals.income.toLocaleString(undefined, { style: "currency", currency: "IDR" })}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-neutral-900">Total Pengeluaran</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold text-rose-700">
-            {totals.expense.toLocaleString(undefined, { style: "currency", currency: "IDR" })}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-neutral-900">Saldo</CardTitle>
-          </CardHeader>
-          <CardContent
-            className={"text-2xl font-semibold " + (totals.balance >= 0 ? "text-neutral-900" : "text-rose-700")}
-          >
-            {totals.balance.toLocaleString(undefined, { style: "currency", currency: "IDR" })}
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className="mt-6">
+  if (loading) {
+    return (
+      <Card>
         <CardHeader>
-          <CardTitle className="text-neutral-900">
-            {selected === "Semua" ? "Transaksi Terbaru" : "Transaksi Terbaru • " + selected}
-          </CardTitle>
+          <Skeleton className="h-8 w-1/2" />
         </CardHeader>
-        <CardContent className="space-y-3">
-          {recent.length === 0 ? (
-            <p className="text-neutral-600">Belum ada transaksi yang tercatat.</p>
-          ) : (
-            recent.map((it) => (
-              <div key={it.id} className="flex items-start justify-between gap-3 rounded-md border p-3">
-                <div className="min-w-0">
-                  <div className="font-medium text-neutral-900">
-                    {it.type === "income" ? "Pemasukan" : "Pengeluaran"} • {it.category}
-                  </div>
-                  <div className="text-sm text-neutral-700">
-                    {new Date(it.date).toLocaleDateString()} •{" "}
-                    {it.amount.toLocaleString(undefined, { style: "currency", currency: "IDR" })}
-                  </div>
-                  {it.note && <p className="mt-1 text-sm text-neutral-600">{it.note}</p>}
-                </div>
+        <CardContent>
+          <Skeleton className="h-[250px] w-full" />
+          <div className="mt-6 grid gap-8 md:grid-cols-2">
+            <div>
+              <Skeleton className="mb-4 h-6 w-1/3" />
+              <div className="space-y-3">
+                <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-8 w-full" />
               </div>
-            ))
-          )}
+            </div>
+            <div>
+              <Skeleton className="mb-4 h-6 w-1/3" />
+              <div className="space-y-3">
+                <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-8 w-full" />
+              </div>
+            </div>
+          </div>
         </CardContent>
       </Card>
-    </section>
+    )
+  }
+
+  if (error || !data) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Ringkasan Keuangan</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-center text-red-600">Gagal memuat data. Silakan coba lagi nanti.</p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <Card>
+      {/* --- MODIFIED --- Header now contains the Title and the new Select component */}
+      <CardHeader className="flex-row items-center justify-between">
+        <CardTitle className="text-neutral-900">Ringkasan Keuangan</CardTitle>
+        <Select value={timeRange} onValueChange={(value) => setTimeRange(value as TimeRange)}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Pilih rentang waktu" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="monthly">Bulanan</SelectItem>
+            <SelectItem value="yearly">Tahunan</SelectItem>
+            <SelectItem value="all">Semua</SelectItem>
+          </SelectContent>
+        </Select>
+      </CardHeader>
+
+      <CardContent>
+        <div className="h-[250px] w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={chartData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+              <defs>
+                <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#2563eb" stopOpacity={0.8} />
+                  <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="name" fontSize={12} tickLine={false} axisLine={false} />
+              <YAxis fontSize={12} tickLine={false} axisLine={false} tickFormatter={shortIdrFormatter} />
+              <Tooltip content={<CustomTooltip />} />
+              <Area type="monotone" dataKey="amount" stroke="#2563eb" fill="url(#colorAmount)" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="mt-6 grid gap-8 md:grid-cols-2">
+          <div>
+            <h3 className="mb-4 text-lg font-semibold text-neutral-800">Pemasukan Terbaru</h3>
+            <div className="space-y-3">
+              {data.pemasukan.map((item) => (
+                <div key={item.id} className="flex items-center justify-between">
+                  <p className="min-w-0 truncate pr-2 text-sm text-neutral-700">{item.label}</p>
+                  <Badge variant="default" className="bg-emerald-100 text-emerald-800 hover:bg-emerald-200">
+                    {idrFormatter(item.amount)}
+                  </Badge>
+                </div>
+              ))}
+              {data.pemasukan.length === 0 && <p className="text-sm text-neutral-500">Tidak ada data.</p>}
+            </div>
+          </div>
+          <div>
+            <h3 className="mb-4 text-lg font-semibold text-neutral-800">Pengeluaran Terbaru</h3>
+            <div className="space-y-3">
+              {data.pengeluaran.map((item) => (
+                <div key={item.id} className="flex items-center justify-between">
+                  <p className="min-w-0 truncate pr-2 text-sm text-neutral-700">{item.label}</p>
+                  <Badge variant="destructive" className="bg-rose-100 text-rose-800 hover:bg-rose-200">
+                    {idrFormatter(item.amount)}
+                  </Badge>
+                </div>
+              ))}
+              {data.pengeluaran.length === 0 && <p className="text-sm text-neutral-500">Tidak ada data.</p>}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-8 flex justify-center">
+          <Button asChild>
+            <Link href="/admin/finance">Lihat Laporan Lengkap</Link>
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
