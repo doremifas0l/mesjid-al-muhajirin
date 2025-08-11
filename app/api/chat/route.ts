@@ -119,7 +119,7 @@ You are an AI assistant for Mesjid Al-Muhajirin Sarimas. Your ONLY function is t
 
 
     const result = streamText({
-      model: google("gemini-1.5-flash"),
+      model: google("gemini-2.5-flash"),
       system,
       messages: convertToModelMessages(messages),
       tools,
