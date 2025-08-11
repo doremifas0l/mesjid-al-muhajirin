@@ -35,44 +35,27 @@ export default function KnowledgeAdminPage() {
   }, [])
   
   async function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (!file) return
-
+    const file = event.target.files?.[0]; if (!file) return;
     setIsUploading(true)
-    const formData = new FormData()
-    formData.append("file", file)
-
+    const formData = new FormData(); formData.append("file", file);
     try {
-      // --- THIS IS THE ONLY LINE THAT CHANGED ---
       const res = await fetch("/api/knowledge/upload", { method: "POST", body: formData })
-      
       if (!res.ok) throw new Error("Gagal mengunggah file.")
-      
       const { publicUrl, path } = await res.json()
-      setForm(prev => ({
-        ...prev,
-        links: [...prev.links, { url: publicUrl, label: file.name, path, type: 'file' }]
-      }))
-    } catch (e: any) {
-      alert(e.message)
-    } finally {
-      setIsUploading(false)
-      event.target.value = ""
-    }
+      setForm(prev => ({ ...prev, links: [...prev.links, { url: publicUrl, label: file.name, path, type: 'file' }] }))
+    } catch (e: any) { alert(e.message) }
+    finally { setIsUploading(false); event.target.value = "" }
   }
 
   async function handleAddNewCategory() {
-    const newCategoryName = window.prompt("Masukkan nama kategori baru:")
-    if (!newCategoryName || !newCategoryName.trim()) return
+    const newCategoryName = window.prompt("Masukkan nama kategori baru:"); if (!newCategoryName?.trim()) return;
     const res = await fetch("/api/note-categories", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newCategoryName.trim() }) })
     if (res.ok) {
       const { data: newCategory } = await res.json()
+      // Also update the main category list
       setCategories(prev => [...prev, newCategory].sort((a,b) => a.name.localeCompare(b.name)))
       setForm(prev => ({ ...prev, category_id: newCategory.id }))
-    } else {
-      const { error } = await res.json()
-      alert(`Gagal menambah kategori: ${error}`)
-    }
+    } else { const { error } = await res.json(); alert(`Gagal menambah kategori: ${error}`) }
   }
   
   function handleCategoryChange(value: string) {
@@ -119,8 +102,42 @@ export default function KnowledgeAdminPage() {
       setIsSaving(false)
     }
   }
+  
+  // --- THIS IS THE IMPLEMENTED AI FUNCTION ---
+  async function addNoteWithAi() {
+    const { title, content, links } = form;
+    if (!title.trim()) { alert("Judul tidak boleh kosong untuk diproses oleh AI."); return; }
+    if (!content.trim()) { alert("Isi Konten tidak boleh kosong untuk diproses oleh AI."); return; }
+    if (isSaving || isSavingWithAi) return;
 
-  async function addNoteWithAi() { alert("Fungsi 'Simpan Dengan AI' akan segera diimplementasikan!") }
+    setIsSavingWithAi(true);
+    try {
+      const res = await fetch("/api/knowledge/ai-process", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, content, links }),
+      });
+
+      if (res.ok) {
+        const { data } = await res.json()
+        setNotes(prev => [data, ...prev])
+        // If AI created a new category, we should update our category list
+        const categoryExists = categories.some(c => c.id === data.category_id);
+        if (!categoryExists && data.category_id) {
+            setCategories(prev => [...prev, { id: data.category_id, name: data.category_name }].sort((a,b) => a.name.localeCompare(b.name)));
+        }
+        setForm({ title: "", content: "", category_id: "", links: [] })
+        alert("Catatan berhasil diproses dan disimpan dengan AI!")
+      } else {
+        const { error } = await res.json()
+        alert(`Gagal memproses dengan AI: ${error || "Unknown error"}`)
+      }
+    } catch (e) {
+      alert("Terjadi kesalahan koneksi saat memproses dengan AI.");
+    } finally {
+      setIsSavingWithAi(false);
+    }
+  }
 
   async function deleteNote(id: string) {
     if (!confirm("Apakah Anda yakin ingin menghapus catatan ini?")) return
