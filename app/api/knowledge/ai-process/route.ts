@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/lib/supabase/admin"
-import { GoogleGenerativeAI } from "@google/generative-ai"
-
-// Initialize the AI client. It automatically uses the key from your .env.local file.
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY || "")
+// --- MODIFIED --- Use the same AI SDK as your chat route
+import { google } from "@ai-sdk/google"
+import { generateObject } from "ai"
+import { z } from "zod"
 
 type RequestPayload = {
   title: string
@@ -16,7 +16,6 @@ export async function POST(req: Request) {
   const body = (await req.json()) as RequestPayload
 
   try {
-    // 1. Get existing categories from DB to provide as context for the AI
     const { data: categories, error: categoriesError } = await admin
       .from("note_categories")
       .select("id, name")
@@ -24,40 +23,23 @@ export async function POST(req: Request) {
 
     const categoryNames = categories?.map(c => c.name) || []
 
-    // 2. Define the Prompt for the AI
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" })
-    const prompt = `
-      Anda adalah asisten cerdas untuk sebuah website masjid.
-      Tugas Anda adalah untuk memproses catatan yang diberikan oleh admin.
-      Berdasarkan judul dan konten berikut:
-      Judul: "${body.title}"
-      Konten: "${body.content}"
+    // --- MODIFIED --- Define the expected JSON output using Zod
+    const aiResponseSchema = z.object({
+      enhanced_content: z.string().describe("The enhanced and improved content. Make it clear, well-structured, and informative. Fix grammar if needed."),
+      suggested_category_name: z.string().describe(`The most suitable category name from this list: [${categoryNames.join(", ")}]. If none match, create a new, relevant, and short category name (max 3 words).`),
+    })
 
-      Lakukan tugas-tugas berikut:
-      1. Tingkatkan (enhance) konten yang diberikan. Buat agar lebih jelas, terstruktur dengan baik, dan informatif. Perbaiki tata bahasa jika perlu.
-      2. Tentukan kategori yang paling cocok untuk catatan ini dari daftar kategori yang ada berikut: [${categoryNames.join(", ")}]. Jika tidak ada yang cocok, buat nama kategori baru yang singkat dan relevan (maksimal 3 kata).
+    // --- MODIFIED --- Use generateObject instead of the other library
+    const { object: aiResponse } = await generateObject({
+      model: google("gemini-1.5-flash"),
+      schema: aiResponseSchema,
+      prompt: `You are an intelligent assistant for a mosque website. Your task is to process a note submitted by an admin. Based on the following title and content, perform the required tasks. Title: "${body.title}". Content: "${body.content}".`,
+    })
 
-      Berikan output Anda HANYA dalam format JSON yang valid, tanpa teks tambahan sebelumnya atau sesudahnya. Strukturnya harus seperti ini:
-      {
-        "enhanced_content": "Konten yang sudah Anda tingkatkan...",
-        "suggested_category_name": "Nama Kategori yang Anda pilih atau buat"
-      }
-    `
-
-    // 3. Call the AI model
-    const result = await model.generateContent(prompt)
-    const responseText = result.response.text()
-    
-    // Clean potential markdown code fences from the AI's response
-    const cleanedJsonString = responseText.replace(/```json\n|```/g, "").trim()
-    const aiResponse = JSON.parse(cleanedJsonString)
+    // Now aiResponse is a fully typed and validated object
     const { enhanced_content, suggested_category_name } = aiResponse
 
-    if (!enhanced_content || !suggested_category_name) {
-      throw new Error("AI response is missing required fields.")
-    }
-
-    // 4. Find or Create the Category in Supabase
+    // Find or Create the Category in Supabase
     let category_id = null
     const existingCategory = categories?.find(c => c.name.toLowerCase() === suggested_category_name.toLowerCase())
 
@@ -73,7 +55,7 @@ export async function POST(req: Request) {
       category_id = newCategory.id
     }
 
-    // 5. Save the final, AI-enhanced note to the database
+    // Save the final, AI-enhanced note to the database
     const payloadToInsert = {
       title: body.title,
       content: enhanced_content,
