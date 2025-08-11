@@ -168,7 +168,7 @@ export default function KnowledgeAdminPage() {
               <Button asChild variant="outline" className="w-full sm:w-auto" disabled={isUploading}>
                 <Label>
                   {isUploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin"/> Mengunggah...</> : <><UploadCloud className="mr-2 h-4 w-4"/> Unggah File (PDF, Teks)</>}
-                  <input type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.txt,.md" disabled={isUploading}/>
+                  <input type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.txt,.md,.docx" disabled={isUploading}/>
                 </Label>
               </Button>
             </div>
