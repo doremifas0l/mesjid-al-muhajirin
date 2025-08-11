@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-// --- MODIFIED --- Imported new icons for the AI button
 import { Trash2, Plus, Link as LinkIcon, X, Loader2, Sparkles } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 
@@ -23,8 +22,6 @@ export default function KnowledgeAdminPage() {
   const [form, setForm] = useState<{ title: string; content: string; category_id: string; links: LinkItem[] }>({ title: "", content: "", category_id: "", links: [] })
   const [currentLink, setCurrentLink] = useState<LinkItem>({ url: "", label: "" })
   const [isSaving, setIsSaving] = useState(false)
-
-  // --- NEW --- A separate loading state for the AI save process
   const [isSavingWithAi, setIsSavingWithAi] = useState(false)
 
   useEffect(() => {
@@ -98,19 +95,8 @@ export default function KnowledgeAdminPage() {
     }
   }
 
-  // --- NEW --- Placeholder function for the new button
   async function addNoteWithAi() {
     alert("Fungsi 'Simpan Dengan AI' akan segera diimplementasikan!")
-    // In the future, this function will look like this:
-    // const { title, content, links } = form;
-    // if (!title.trim()) { /* validation */ return; }
-    // if (isSaving || isSavingWithAi) return;
-    // setIsSavingWithAi(true);
-    // try {
-    //   // ... logic to call the new AI endpoint ...
-    // } finally {
-    //   setIsSavingWithAi(false);
-    // }
   }
 
   async function deleteNote(id: string) {
@@ -151,20 +137,18 @@ export default function KnowledgeAdminPage() {
             </div>
           </div>
           
-          {/* --- MODIFIED --- The two save buttons are now here */}
           <div className="flex items-center gap-2">
             <Button onClick={addNote} disabled={isSaving || isSavingWithAi} className="bg-neutral-900 hover:bg-black w-32">
               {isSaving ? ( <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Menyimpan...</> ) : ( <><Plus className="mr-2 h-4 w-4" /> Simpan</> )}
             </Button>
-
-            <Button onClick={addNoteWithAi} disabled={isSaving || isSavingWithAi} variant="outline" className="w-40">
+            
+            <Button onClick={addNoteWithAi} disabled={isSaving || isSavingWithAi} variant="ghost" className="text-blue-600 hover:bg-blue-50 hover:text-blue-700 w-44">
               {isSavingWithAi ? ( <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Memproses...</> ) : ( <><Sparkles className="mr-2 h-4 w-4" /> Simpan Dengan AI</> )}
             </Button>
           </div>
         </CardContent>
       </Card>
 
-      {/* The list of notes remains the same */}
       <Card>
         <CardHeader><CardTitle>Daftar Pengetahuan</CardTitle></CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
