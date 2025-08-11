@@ -1,14 +1,13 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import Link from "next/link" // Import Link
+import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Button } from "@/components/ui/button" // Import Button
+import { Button } from "@/components/ui/button"
 
-// Define the data structure we expect from our new API
 type Totals = { income: number; expense: number; balance: number }
 type RecentTransaction = {
   id: string
@@ -27,16 +26,12 @@ type FinanceData = {
 type TimeRange = "monthly" | "yearly" | "all"
 
 export default function FinancePreview() {
-  // Centralized state for data, loading, and errors
   const [data, setData] = useState<FinanceData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  // State for the filters
   const [selectedCategory, setSelectedCategory] = useState<string>("Semua")
   const [timeRange, setTimeRange] = useState<TimeRange>("monthly")
 
-  // This useEffect now fetches data from our API whenever a filter changes
   useEffect(() => {
     const fetchFinanceData = async () => {
       setLoading(true)
@@ -55,16 +50,13 @@ export default function FinancePreview() {
         setLoading(false)
       }
     }
-
     fetchFinanceData()
-  }, [timeRange, selectedCategory]) // Re-run when either filter changes
+  }, [timeRange, selectedCategory])
 
-  // Loading State UI
   if (loading) {
     return <FinanceSkeleton />
   }
 
-  // Error State UI
   if (error || !data) {
     return (
       <section className="mx-auto max-w-6xl px-4 py-12 sm:py-16 text-center text-red-600">
@@ -73,7 +65,6 @@ export default function FinancePreview() {
     )
   }
 
-  // Success State UI
   return (
     <section id="finance" className="mx-auto max-w-6xl px-4 py-12 sm:py-16">
       <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
@@ -112,19 +103,19 @@ export default function FinancePreview() {
           <CardHeader><CardTitle>Total Pemasukan</CardTitle></CardHeader>
           <CardContent className="text-2xl font-semibold text-emerald-700">
             {data.totals.income.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
-          </Ayrıntılar>
+          </CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle>Total Pengeluaran</CardTitle></CardHeader>
           <CardContent className="text-2xl font-semibold text-rose-700">
             {data.totals.expense.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
-          </Ayrıntılar>
+          </CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle>Saldo</CardTitle></CardHeader>
           <CardContent className={"text-2xl font-semibold " + (data.totals.balance >= 0 ? "text-neutral-900" : "text-rose-700")}>
             {data.totals.balance.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
-          </Ayrıntılar>
+          </CardContent>
         </Card>
       </div>
 
@@ -134,7 +125,7 @@ export default function FinancePreview() {
             {selectedCategory === "Semua" ? "Transaksi Terbaru" : `Transaksi Terbaru • ${selectedCategory}`}
           </CardTitle>
           <Button asChild variant="link" className="text-sm">
-            <Link href="/admin/finance/transactions">
+            <Link href="/finance"> {/* <-- THE ONLY CHANGE IS HERE */}
               Lihat Semua
             </Link>
           </Button>
