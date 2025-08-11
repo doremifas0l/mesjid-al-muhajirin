@@ -9,7 +9,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, ArrowRight } from "lucide-react"
 
-// Updated data structure from our API
 type Totals = { income: number; expense: number; balance: number }
 type Transaction = {
   id: string
@@ -29,20 +28,17 @@ type FinanceData = {
 type TimeRange = "monthly" | "yearly" | "all"
 type TransactionType = "all" | "income" | "expense"
 
-const ITEMS_PER_PAGE = 10 // Must match the backend
+const ITEMS_PER_PAGE = 10
 
 export default function AllTransactionsPage() {
   const [data, setData] = useState<FinanceData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  // All our filters
   const [selectedCategory, setSelectedCategory] = useState<string>("Semua")
   const [timeRange, setTimeRange] = useState<TimeRange>("monthly")
   const [transactionType, setTransactionType] = useState<TransactionType>("all")
   const [currentPage, setCurrentPage] = useState(1)
 
-  // This useEffect fetches data from our API whenever any filter changes
   useEffect(() => {
     const fetchFinanceData = async () => {
       setLoading(true)
@@ -57,9 +53,14 @@ export default function AllTransactionsPage() {
         const res = await fetch(`/api/finance?${params.toString()}`)
         if (!res.ok) throw new Error("Gagal mengambil data dari server.")
         const result = await res.json()
-        setData(result.data)
+        if (result && result.data) {
+          setData(result.data)
+        } else {
+          throw new Error("Format data dari server tidak valid.")
+        }
       } catch (e: any) {
         setError(e.message)
+        setData(null)
       } finally {
         setLoading(false)
       }
@@ -67,7 +68,6 @@ export default function AllTransactionsPage() {
     fetchFinanceData()
   }, [timeRange, selectedCategory, transactionType, currentPage])
 
-  // Reset to page 1 if any filter *other than* the page number changes
   useEffect(() => {
     setCurrentPage(1)
   }, [timeRange, selectedCategory, transactionType])
@@ -101,7 +101,6 @@ export default function AllTransactionsPage() {
         </Button>
       </div>
 
-      {/* Filter Controls */}
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="grid w-full gap-1.5">
           <Label>Filter Waktu</Label>
@@ -118,7 +117,7 @@ export default function AllTransactionsPage() {
           <Label>Filter Kategori</Label>
           <Select value={selectedCategory} onValueChange={setSelectedCategory}>
             <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>{data.categories.map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}</SelectContent>
+            <SelectContent>{(data.categories || []).map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}</SelectContent>
           </Select>
         </div>
         <div className="grid w-full gap-1.5">
@@ -134,14 +133,13 @@ export default function AllTransactionsPage() {
         </div>
       </div>
 
-      {/* Transaction List */}
       <Card className="mt-6">
         <CardHeader><CardTitle>Daftar Transaksi</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          {data.transactions.length === 0 ? (
+          {(data.transactions || []).length === 0 ? (
             <p className="text-center text-neutral-600 py-8">Tidak ada transaksi yang cocok dengan filter ini.</p>
           ) : (
-            data.transactions.map((it) => (
+            (data.transactions || []).map((it) => (
               <div key={it.id} className="flex items-start justify-between gap-3 rounded-md border p-3">
                 <div className="min-w-0">
                   <div className={`font-medium capitalize ${it.type === 'income' ? 'text-emerald-700' : 'text-rose-700'}`}>
@@ -161,7 +159,6 @@ export default function AllTransactionsPage() {
         </CardContent>
       </Card>
 
-      {/* Pagination Controls */}
       <div className="mt-4 flex items-center justify-between">
         <Button variant="outline" onClick={() => setCurrentPage(p => p - 1)} disabled={currentPage === 1}>
           <ArrowLeft className="mr-2 h-4 w-4" /> Sebelumnya
