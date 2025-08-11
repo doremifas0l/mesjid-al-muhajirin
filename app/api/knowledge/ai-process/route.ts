@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/lib/supabase/admin"
-// --- MODIFIED --- Use the same AI SDK as your chat route
 import { google } from "@ai-sdk/google"
 import { generateObject } from "ai"
 import { z } from "zod"
@@ -23,23 +22,29 @@ export async function POST(req: Request) {
 
     const categoryNames = categories?.map(c => c.name) || []
 
-    // --- MODIFIED --- Define the expected JSON output using Zod
+    // --- MODIFIED --- The Zod schema descriptions are now in Indonesian to reinforce the language instruction.
     const aiResponseSchema = z.object({
-      enhanced_content: z.string().describe("The enhanced and improved content. Make it clear, well-structured, and informative. Fix grammar if needed."),
-      suggested_category_name: z.string().describe(`The most suitable category name from this list: [${categoryNames.join(", ")}]. If none match, create a new, relevant, and short category name (max 3 words).`),
+      enhanced_content: z.string().describe("Tingkatkan dan perbaiki konten. Buat agar jelas, terstruktur, dan informatif. Gunakan Bahasa Indonesia yang baik dan benar."),
+      suggested_category_name: z.string().describe(`Kategori yang paling cocok dari daftar ini: [${categoryNames.join(", ")}]. Jika tidak ada, buat kategori baru yang relevan dalam Bahasa Indonesia (maksimal 3 kata).`),
     })
 
-    // --- MODIFIED --- Use generateObject instead of the other library
+    // --- MODIFIED --- The main prompt is now more direct about using Indonesian.
     const { object: aiResponse } = await generateObject({
       model: google("gemini-1.5-flash"),
       schema: aiResponseSchema,
-      prompt: `You are an intelligent assistant for a mosque website. Your task is to process a note submitted by an admin. Based on the following title and content, perform the required tasks. Title: "${body.title}". Content: "${body.content}".`,
+      prompt: `Anda adalah asisten cerdas untuk sebuah website masjid.
+      Tugas Anda adalah untuk memproses catatan yang diberikan oleh admin.
+      Berdasarkan judul dan konten berikut:
+      Judul: "${body.title}"
+      Konten: "${body.content}"
+
+      Lakukan tugas-tugas berikut, dan pastikan SEMUA output Anda dalam Bahasa Indonesia:
+      1. Tingkatkan konten yang diberikan. Buat agar lebih jelas, terstruktur dengan baik, dan informatif.
+      2. Tentukan kategori yang paling cocok untuk catatan ini dari daftar yang ada: [${categoryNames.join(", ")}]. Jika tidak ada yang cocok, buat nama kategori baru yang relevan dalam Bahasa Indonesia.`,
     })
 
-    // Now aiResponse is a fully typed and validated object
     const { enhanced_content, suggested_category_name } = aiResponse
 
-    // Find or Create the Category in Supabase
     let category_id = null
     const existingCategory = categories?.find(c => c.name.toLowerCase() === suggested_category_name.toLowerCase())
 
@@ -55,7 +60,6 @@ export async function POST(req: Request) {
       category_id = newCategory.id
     }
 
-    // Save the final, AI-enhanced note to the database
     const payloadToInsert = {
       title: body.title,
       content: enhanced_content,
@@ -70,7 +74,6 @@ export async function POST(req: Request) {
       .single()
     if (insertError) throw new Error("Could not save final note: " + insertError.message)
     
-    // Reshape the data for the frontend
     const reshapedData = {
       id: finalNote.id,
       title: finalNote.title,
@@ -83,7 +86,8 @@ export async function POST(req: Request) {
     };
     return NextResponse.json({ data: reshapedData })
 
-  } catch (error: any) {
+  } catch (error: any)
+  {
     console.error("AI Processing Error:", error)
     return NextResponse.json({ error: "Gagal memproses dengan AI: " + error.message }, { status: 500 })
   }
