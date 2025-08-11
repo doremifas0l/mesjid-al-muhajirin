@@ -15,6 +15,9 @@ type LinkItem = { url: string; label: string }
 type NoteItem = { id: string; title: string; content: string; created_at: string; category_id: string | null; category_name: string | null; links: LinkItem[] | null }
 type CategoryItem = { id: string; name: string }
 
+// --- NEW --- A special value for our "Create New" option
+const CREATE_NEW_CATEGORY_VALUE = "CREATE_NEW"
+
 export default function KnowledgeAdminPage() {
   const [notes, setNotes] = useState<NoteItem[]>([])
   const [categories, setCategories] = useState<CategoryItem[]>([])
@@ -30,7 +33,6 @@ export default function KnowledgeAdminPage() {
     fetchData()
   }, [])
 
-  // --- NEW --- Function to handle creating a new category
   async function handleAddNewCategory() {
     const newCategoryName = window.prompt("Masukkan nama kategori baru:")
     if (!newCategoryName || !newCategoryName.trim()) return
@@ -43,13 +45,20 @@ export default function KnowledgeAdminPage() {
 
     if (res.ok) {
       const { data: newCategory } = await res.json()
-      // Add to local state and auto-select it
       setCategories(prev => [...prev, newCategory].sort((a,b) => a.name.localeCompare(b.name)))
       setForm(prev => ({ ...prev, category_id: newCategory.id }))
     } else {
-      // Handle errors, like duplicates
       const { error } = await res.json()
       alert(`Gagal menambah kategori: ${error}`)
+    }
+  }
+  
+  // --- MODIFIED --- This handler now checks for the special "Create New" value
+  function handleCategoryChange(value: string) {
+    if (value === CREATE_NEW_CATEGORY_VALUE) {
+      handleAddNewCategory()
+    } else {
+      setForm(prev => ({ ...prev, category_id: value }))
     }
   }
 
@@ -95,14 +104,17 @@ export default function KnowledgeAdminPage() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1"><Label htmlFor="title">Judul</Label><Input id="title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Contoh: Sejarah Masjid"/></div>
             <div className="space-y-1">
-              {/* --- MODIFIED --- Label now includes the 'Add New' button */}
-              <div className="flex items-center justify-between">
-                <Label htmlFor="category">Kategori</Label>
-                <Button variant="outline" size="sm" onClick={handleAddNewCategory} className="h-7 text-xs">+ Kategori Baru</Button>
-              </div>
-              <Select value={form.category_id} onValueChange={(value) => setForm({ ...form, category_id: value })}>
+              <Label htmlFor="category">Kategori</Label>
+              {/* --- MODIFIED --- The Select component now uses the new handler */}
+              <Select value={form.category_id} onValueChange={handleCategoryChange}>
                 <SelectTrigger><SelectValue placeholder="Pilih kategori... (opsional)" /></SelectTrigger>
-                <SelectContent>{categories.map(cat => <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>)}</SelectContent>
+                <SelectContent>
+                  {/* --- MODIFIED --- Add the special "Create New" item at the top */}
+                  <SelectItem value={CREATE_NEW_CATEGORY_VALUE} className="font-semibold text-blue-600">
+                    + Buat Kategori Baru...
+                  </SelectItem>
+                  {categories.map(cat => <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>)}
+                </SelectContent>
               </Select>
             </div>
           </div>
