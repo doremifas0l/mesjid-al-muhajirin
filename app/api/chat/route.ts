@@ -44,7 +44,7 @@ export async function POST(req: Request) {
             },
             query: {
               type: "string",
-              description: "Keywords from an event title or description to search for (e.g., 'Kajian Rutin'). Can be left blank to fetch all events for the given time period.",
+              description: "Keywords from an event title to search for. Leave blank to fetch all events.",
             },
             limit: {
               type: "integer",
@@ -60,7 +60,7 @@ export async function POST(req: Request) {
 
           let dbQuery = supabase
             .from("events")
-            .select("title, starts_at, location, description, recurrence, attachment");
+            .select("title, starts_at, location, description, recurrence");
 
           const now = new Date().toISOString();
 
@@ -78,13 +78,16 @@ export async function POST(req: Request) {
 
           if (error) {
             console.error("Supabase query error:", error);
-            return { error: `Failed to fetch event data: ${error.message}` };
+            // Give the AI a specific error message to relay to the user.
+            return { result: "ERROR: There was a problem connecting to the database." };
           }
           
           console.log("Data returned from Supabase:", data);
           
+          // --- THIS IS THE KEY CHANGE ---
+          // If data is empty, return a specific, machine-readable message.
           if (!data || data.length === 0) {
-            return { result: "No events were found matching the user's request. Please inform the user clearly." };
+            return { result: "INFO: No events were found matching the user's request." };
           }
           
           return { events: data };
@@ -92,26 +95,22 @@ export async function POST(req: Request) {
       }),
     }
 
-    // --- NEW, STRUCTURED SYSTEM PROMPT ---
+    // --- NEW, HIGHLY-STRUCTURED SYSTEM PROMPT ---
     const system = `
-You are an AI assistant for Mesjid Al-Muhajirin Sarimas. Your ONLY function is to provide information about mosque events by fetching data.
+You are an AI assistant for Mesjid Al-Muhajirin Sarimas. You MUST follow these rules precisely.
 
-**RESPONSE INSTRUCTIONS**
-1.  Analyze the user's message to understand what event information they are looking for.
-2.  Use the "getEventData" tool to find relevant events.
-3.  Present the information from the tool to the user in a clear, friendly, and helpful manner.
-
-**CAPABILITIES**
-- You CAN search for upcoming events.
-- You CAN search for past events.
-- You CAN filter events by keywords (e.g., "kajian", "idul adha").
-- You MUST answer in the same language as the user.
+**RESPONSE LOGIC FLOW**
+You must process every user request by following these steps:
+1.  Determine if the user is asking about an event. If so, call the 'getEventData' tool.
+2.  Analyze the result from the 'getEventData' tool.
+3.  **If the tool returns a list of 'events'**: Synthesize the information into a friendly, bulleted list for the user. Include the title and start time.
+4.  **If the tool returns a 'result' containing 'INFO: No events were found'**: You MUST respond to the user with the exact phrase: "Maaf, saya tidak dapat menemukan acara yang sesuai dengan permintaan Anda."
+5.  **If the tool returns a 'result' containing 'ERROR'**: You MUST respond to the user with the exact phrase: "Maaf, terjadi kesalahan saat mengambil data acara. Silakan coba lagi nanti."
+6.  **If you are unable to call the tool or do not understand the request**: You MUST respond with the exact phrase: "Maaf, saya tidak mengerti permintaan Anda. Bisakah Anda menjelaskannya dengan cara lain?"
 
 **IMPORTANT RESTRICTIONS**
-- You CANNOT add, create, or schedule new events.
-- You CANNOT update, change, or modify existing events.
-- You CANNOT delete or cancel events.
-- If a user asks you to perform a restricted action (like creating an event), you MUST politely refuse and state that you can only provide information about existing events.
+- You CANNOT add, update, or delete events. If a user asks, politely refuse and explain you can only provide information.
+- You MUST answer in Bahasa Indonesia unless the user speaks in another language.
 
 **CONTEXT**
 - Today's Date: ${new Date().toLocaleDateString('en-CA')} (YYYY-MM-DD)
