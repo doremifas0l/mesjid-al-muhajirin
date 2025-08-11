@@ -4,9 +4,6 @@ import { google } from "@ai-sdk/google";
 import { generateObject } from "ai";
 import { z } from "zod";
 
-// NOTE: All heavy parsing libraries have been removed from the top-level static imports
-// to prevent build-time errors on Vercel. They are now imported dynamically below.
-
 type LinkItem = {
   url: string;
   label: string;
@@ -28,7 +25,6 @@ export async function POST(req: Request) {
     if (categoriesError) throw new Error(`Could not fetch categories: ${categoriesError.message}`);
     const categoryNames = categories?.map(c => c.name) || [];
 
-    // --- MASTER LOGIC: FETCH AND PARSE ALL EXTERNAL CONTENT ---
     let externalContent = "";
     if (body.links && body.links.length > 0) {
       for (const link of body.links) {
@@ -38,12 +34,10 @@ export async function POST(req: Request) {
 
           if (link.type === 'link') {
             if (link.url.includes("youtube.com") || link.url.includes("youtu.be")) {
-              // Dynamic import for youtube-transcript
               const { YoutubeTranscript } = await import('youtube-transcript');
               const transcript = await YoutubeTranscript.fetchTranscript(link.url);
               extractedText = transcript.map(item => item.text).join(' ');
             } else {
-              // Dynamic import for cheerio
               const cheerio = await import('cheerio');
               const response = await fetch(link.url);
               const html = await response.text();
@@ -53,23 +47,19 @@ export async function POST(req: Request) {
             }
           } else if (link.type === 'file') {
             const fileResponse = await fetch(link.url);
-            if (!fileResponse.ok) {
-                throw new Error(`Failed to fetch file: ${fileResponse.statusText}`);
-            }
+            if (!fileResponse.ok) throw new Error(`Failed to fetch file: ${fileResponse.statusText}`);
             const fileBuffer = await fileResponse.arrayBuffer();
 
             if (link.label.endsWith('.pdf')) {
-              // Dynamic import for pdf-parse (the one causing the build error)
               const pdf = (await import('pdf-parse')).default;
               const data = await pdf(Buffer.from(fileBuffer));
               extractedText = data.text;
             } else if (link.label.endsWith('.docx')) {
-              // Dynamic import for mammoth
               const mammoth = (await import('mammoth')).default;
               const { value } = await mammoth.extractRawText({ buffer: Buffer.from(fileBuffer) });
               extractedText = value;
             } else if (link.label.endsWith('.txt') || link.label.endsWith('.md')) {
-                extractedText = Buffer.from(fileBuffer).toString('utf-8');
+              extractedText = Buffer.from(fileBuffer).toString('utf-8');
             }
           }
           
@@ -78,7 +68,15 @@ export async function POST(req: Request) {
           }
         } catch (e: any) {
           console.warn(`Could not process content for ${link.label} (${link.url}):`, e.message);
-          externalContent += `\n\n[Gagal memproses tautan: ${link.label}]`;
+          
+          // --- IMPROVED ERROR HANDLING ---
+          let failureReason = "terjadi kesalahan umum saat memproses";
+          if (e.message.toLowerCase().includes("transcript is disabled") || e.message.toLowerCase().includes("no transcripts found")) {
+              failureReason = "tidak ditemukan transkrip (subtitle/caption) untuk video ini";
+          } else if (e.message.toLowerCase().includes("private")) {
+              failureReason = "video ini bersifat pribadi (private) atau tidak tersedia";
+          }
+          externalContent += `\n\n[PERINGATAN: Gagal memproses tautan "${link.label}". Penyebab: ${failureReason}.]`;
         }
       }
     }
@@ -88,9 +86,9 @@ export async function POST(req: Request) {
         suggested_category_name: z.string().describe(`Kategori yang paling cocok dari daftar ini: [${categoryNames.join(", ")}]. Jika tidak ada, buat kategori baru yang relevan dalam Bahasa Indonesia (maksimal 3 kata).`),
     });
 
-    // --- UPDATED PROMPT TO HANDLE ALL CONTENT ---
+    // --- IMPROVED AI PROMPT ---
     const { object: aiResponse } = await generateObject({
-      model: google("gemini-2.5-flash"),
+      model: google("gemini-1.5-flash"),
       schema: aiResponseSchema,
       prompt: `Anda adalah asisten cerdas yang bertugas merangkum informasi untuk website masjid.
       Proses dan gabungkan semua informasi berikut menjadi satu catatan yang utuh dan informatif.
@@ -102,8 +100,9 @@ export async function POST(req: Request) {
       ${externalContent ? `Konten yang diekstrak dari tautan dan file terlampir:\n${externalContent}` : ""}
 
       Lakukan tugas-tugas berikut, pastikan SEMUA output dalam Bahasa Indonesia:
-      1. BUAT SEBUAH RINGKASAN UTUH: Gabungkan catatan tambahan dari admin dengan konten yang diekstrak dari file/tautan. Hasilkan satu konten baru yang terstruktur, jelas, dan mudah dibaca.
-      2. SARANKAN KATEGORI: Tentukan kategori yang paling cocok untuk ringkasan akhir dari daftar ini: [${categoryNames.join(", ")}]. Jika tidak ada yang pas, buat kategori baru yang singkat dan relevan.`,
+      1. BUAT SEBUAH RINGKASAN UTUH: Gabungkan catatan tambahan dari admin dengan konten yang diekstrak. Hasilkan satu konten baru yang terstruktur, jelas, dan mudah dibaca.
+      2. TANGANI PERINGATAN: Jika Anda melihat teks "[PERINGATAN: ...]", sebutkan secara jelas di dalam ringkasan Anda bahwa sebuah tautan tidak dapat diproses dan jelaskan alasannya sesuai dengan isi peringatan tersebut.
+      3. SARANKAN KATEGORI: Tentukan kategori yang paling cocok untuk ringkasan akhir dari daftar ini: [${categoryNames.join(", ")}]. Jika tidak ada yang pas, buat kategori baru yang singkat dan relevan.`,
     });
     
     const { enhanced_content, suggested_category_name } = aiResponse;
