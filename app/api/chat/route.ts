@@ -27,7 +27,6 @@ export async function POST(req: Request) {
           type: "object",
           properties: {
             query: { type: "string", description: "Keywords to search for in the event title or description." },
-            // These are optional. The AI will provide them if it can infer them from the conversation.
             startDate: { type: "string", description: "The start date of the search window, format YYYY-MM-DD." },
             endDate: { type: "string", description: "The end date of the search window, format YYYY-MM-DD." },
           },
@@ -41,15 +40,11 @@ export async function POST(req: Request) {
             .select("title, starts_at, location, description, recurrence")
             .order('starts_at', { ascending: true });
 
-          // --- SMART DEFAULTS ---
-          // If a start date is provided, use it. Otherwise, default to right now.
-          // This elegantly handles both specific queries and general "what's upcoming" questions.
           dbQuery = dbQuery.gte('starts_at', startDate ? startDate : new Date().toISOString());
 
           if (endDate) {
-            // Add an end date to the query only if it's provided.
             const endOfDay = new Date(endDate);
-            endOfDay.setHours(23, 59, 59, 999); // Ensure we get events happening anytime on the end date
+            endOfDay.setHours(23, 59, 59, 999);
             dbQuery = dbQuery.lte('starts_at', endOfDay.toISOString());
           }
           
@@ -63,7 +58,7 @@ export async function POST(req: Request) {
       }),
     }
 
-    // --- The most important part: A prompt focused on conversation and context ---
+    // A prompt focused on conversation, context, and data consistency.
     const system = `
 You are a smart, conversational AI assistant for Mesjid Al-Muhajirin. Your primary goal is to help users find information about mosque events.
 
@@ -71,19 +66,15 @@ You are a smart, conversational AI assistant for Mesjid Al-Muhajirin. Your prima
 - Today's Date is: ${new Date().toLocaleDateString('en-CA')} (Format: YYYY-MM-DD). Use this as your reference for all date-related questions.
 
 **INSTRUCTIONS**
-1.  **Analyze the full CONVERSATION HISTORY** to understand the user's request, especially for follow-up questions.
-2.  Your main task is to determine if the user is asking for events within a specific date range.
-3.  Based on the user's message and the conversation history, call the 'getEventData' tool.
-    -   **Examples of how to determine dates:**
-        -   User: "ada event apa hari rabu 13 agustus?" -> Call tool with startDate: '2025-08-13', endDate: '2025-08-13'.
-        -   User: "kalo minggu ini ada apa?" (what about this week?) -> Calculate the start and end dates for the current week and pass them to the tool.
-        -   User: "ada acara apa saja?" (general question) -> **Do not provide startDate or endDate**. The tool will correctly default to all upcoming events.
-4.  After the tool runs, you MUST generate a final response.
-    -   If the tool returns events, list them clearly. Format the date like this: "Rabu, 13 Agustus 2025".
-    -   If the tool returns no events, clearly state that nothing was found for their request.
-    -   If the tool returns an error, apologize for the system error.
-5.  **NEVER give a blank response.** If you are totally confused, just say: "Maaf, saya kurang mengerti. Bisa tolong perjelas pertanyaannya?"
-6.  You can answer question that is not offensive with your own knowledge
+1.  Read the full CONVERSATION HISTORY to understand the user's request, especially for follow-up questions.
+2.  Your main task is to call the 'getEventData' tool to find event information.
+3.  Infer the 'startDate' and 'endDate' from the user's message. If the user asks a general question like "ada acara apa?", do not provide any dates to the tool.
+4.  After the tool runs, you MUST generate a final response based on the data returned.
+5.  **--- THE SOURCE OF TRUTH RULE ---**: When presenting event details, you MUST use the structured 'starts_at' field for all date and time information. IGNORE any conflicting dates you see inside the text 'description' field. This is the most important rule to avoid confusion.
+6.  You can answer general, non-offensive questions that are not related to events using your own knowledge.
+7.  If the tool returns events, list them clearly. Format the date like this: "Sabtu, 16 Agustus 2025".
+8.  If the tool returns no events, clearly state that nothing was found.
+9.  NEVER give a blank response. If you are confused, ask for clarification.
 `.trim();
 
     const result = streamText({
