@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Label } from "@/components/ui/label" // --- NEW --- Import the Label component
 
 type FinanceType = "income" | "expense"
 
@@ -15,8 +16,6 @@ type FinanceItem = {
   date: string // ISO
 }
 
-// --- NEW ---
-// Define the possible time ranges for type safety
 type TimeRange = "monthly" | "yearly" | "all"
 
 const CATEGORIES_KEY = "masjid_finance_categories"
@@ -25,10 +24,10 @@ export default function FinancePreview() {
   const [items, setItems] = useState<FinanceItem[]>([])
   const [categories, setCategories] = useState<string[]>([])
   const [selected, setSelected] = useState<string>("Semua")
-  
-  // --- NEW ---
-  // State to manage the selected time range. Default to 'all'.
-  const [timeRange, setTimeRange] = useState<TimeRange>("all")
+
+  // --- MODIFIED ---
+  // The default time range is now "monthly"
+  const [timeRange, setTimeRange] = useState<TimeRange>("monthly")
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -45,48 +44,35 @@ export default function FinancePreview() {
       try {
         const parsed = JSON.parse(cats) as string[]
         const allCats = new Set(parsed)
-        // Also merge any categories present in items
         ;(JSON.parse(raw || "[]") as FinanceItem[]).forEach((i) => allCats.add(i.category))
         setCategories(["Semua", ...Array.from(allCats)])
       } catch {
         setCategories(["Semua"])
       }
     } else {
-      // derive from items only
       const setCats = new Set<string>()
       ;(JSON.parse(raw || "[]") as FinanceItem[]).forEach((i) => setCats.add(i.category))
       setCategories(["Semua", ...Array.from(setCats)])
     }
   }, [])
 
-  // --- MODIFIED ---
-  // The filtering logic now considers BOTH the selected timeRange and the selected category.
   const filtered = useMemo(() => {
     const now = new Date()
-
-    // 1. First, filter by the selected time range
     const timeFilteredItems = items.filter((item) => {
-      if (timeRange === "all") {
-        return true // Keep all items if 'all' is selected
-      }
+      if (timeRange === "all") return true
       const itemDate = new Date(item.date)
       if (timeRange === "monthly") {
-        // Keep item if it's in the current month and year
         return itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear()
       }
       if (timeRange === "yearly") {
-        // Keep item if it's in the current year
         return itemDate.getFullYear() === now.getFullYear()
       }
       return true
     })
 
-    // 2. Then, filter the result by the selected category
-    if (selected === "Semua") {
-      return timeFilteredItems // Return all time-filtered items if category is 'Semua'
-    }
+    if (selected === "Semua") return timeFilteredItems
     return timeFilteredItems.filter((i) => i.category === selected)
-  }, [items, selected, timeRange]) // <-- Added timeRange to the dependency array
+  }, [items, selected, timeRange])
 
   const totals = useMemo(() => {
     const income = filtered.filter((i) => i.type === "income").reduce((s, i) => s + i.amount, 0)
@@ -101,16 +87,18 @@ export default function FinancePreview() {
 
   return (
     <section id="finance" className="mx-auto max-w-6xl px-4 py-12 sm:py-16">
-      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
+      {/* --- AESTHETIC CHANGE --- */}
+      {/* Changed sm:items-end to sm:items-center for better vertical alignment */}
+      <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <h2 className="text-2xl sm:text-3xl font-semibold text-neutral-900">Keuangan</h2>
           <p className="mt-1 text-sm text-neutral-600">Ringkasan pemasukan, pengeluaran, dan saldo.</p>
         </div>
-        
-        {/* --- MODIFIED --- */}
-        {/* Wrapped the two selectors in a flex container to place them side-by-side */}
+
         <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
-          <div className="w-full sm:w-40">
+          {/* Time Filter with Label */}
+          <div className="grid w-full sm:w-40 gap-1.5">
+            <Label>Filter Waktu</Label>
             <Select value={timeRange} onValueChange={(value) => setTimeRange(value as TimeRange)}>
               <SelectTrigger>
                 <SelectValue placeholder="Filter Waktu" />
@@ -122,7 +110,9 @@ export default function FinancePreview() {
               </SelectContent>
             </Select>
           </div>
-          <div className="w-full sm:w-64">
+          {/* Category Filter with Label */}
+          <div className="grid w-full sm:w-56 gap-1.5">
+            <Label>Filter Kategori</Label>
             <Select value={selected} onValueChange={setSelected}>
               <SelectTrigger>
                 <SelectValue placeholder="Filter kategori" />
@@ -139,7 +129,7 @@ export default function FinancePreview() {
         </div>
       </div>
 
-      {/* The rest of your component remains exactly the same */}
+      {/* The rest of your component remains the same */}
       <div className="mt-6 grid gap-6 sm:grid-cols-3">
         <Card>
           <CardHeader>
