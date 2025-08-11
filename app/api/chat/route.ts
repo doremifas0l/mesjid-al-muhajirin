@@ -32,23 +32,22 @@ export async function POST(req: Request) {
     const tools = {
       getEventData: tool({
         description:
-          "Fetches a list of events from the database. Use this for any question about schedules, activities, or what's happening at the mosque.",
+          "Fetches event information from the database. Use this to answer any questions about schedules, activities, or what's happening at the mosque.",
         parameters: {
           type: "object",
           properties: {
-            time_period: {
-              type: "string",
-              enum: ["upcoming", "past"],
-              description:
-                "Filter for 'upcoming' or 'past' events. Defaults to 'upcoming'.",
-            },
             query: {
               type: "string",
-              description: "Keywords from an event title to search for. Leave blank to fetch all events.",
+              description: "Keywords from an event title to search for. Can be blank.",
             },
-            limit: {
-              type: "integer",
-              description: "The maximum number of events to return. Defaults to 10.",
+            // --- NEW PARAMETERS FOR DATES ---
+            startDate: {
+                type: 'string',
+                description: "The start date for the event search window, in YYYY-MM-DD format. Inferred from the user's query."
+            },
+            endDate: {
+                type: 'string',
+                description: "The end date for the event search window, in YYYY-MM-DD format. Inferred from the user's query."
             }
           },
           additionalProperties: false,
@@ -56,69 +55,70 @@ export async function POST(req: Request) {
         execute: async (args) => {
           console.log("AI is calling getEventData with arguments:", args);
 
-          const { time_period = "upcoming", query, limit = 10 } = args;
+          const { query, startDate, endDate } = args;
 
           let dbQuery = supabase
             .from("events")
-            .select("title, starts_at, location, description, recurrence");
+            .select("title, starts_at, location, description, recurrence")
+            // Always order by the event date to show the soonest first
+            .order('starts_at', { ascending: true });
 
-          const now = new Date().toISOString();
-
-          if (time_period === "past") {
-            dbQuery = dbQuery.lte("starts_at", now).order("starts_at", { ascending: false });
+          // --- UPDATED QUERY LOGIC ---
+          if (startDate) {
+            dbQuery = dbQuery.gte('starts_at', startDate);
           } else {
-            dbQuery = dbQuery.gte("starts_at", now).order("starts_at", { ascending: true });
+            // If no start date, default to showing upcoming events from today
+            dbQuery = dbQuery.gte('starts_at', new Date().toISOString());
+          }
+
+          if (endDate) {
+            dbQuery = dbQuery.lte('starts_at', endDate);
           }
           
           if (query && query.trim() !== "") {
             dbQuery = dbQuery.or(`title.ilike.%${query}%,description.ilike.%${query}%`);
           }
 
-          const { data, error } = await dbQuery.limit(limit);
+          const { data, error } = await dbQuery.limit(20);
 
-          if (error) {
-            console.error("Supabase query error:", error);
-            // Give the AI a specific error message to relay to the user.
-            return { result: "ERROR: There was a problem connecting to the database." };
+          const toolResult = {
+            events: data,
+            error: error?.message,
+            eventsFound: data?.length ?? 0
           }
-          
-          console.log("Data returned from Supabase:", data);
-          
-          // --- THIS IS THE KEY CHANGE ---
-          // If data is empty, return a specific, machine-readable message.
-          if (!data || data.length === 0) {
-            return { result: "INFO: No events were found matching the user's request." };
-          }
-          
-          return { events: data };
+          console.log("Result being sent back to AI:", toolResult);
+
+          // Return a structured object with the data, or an error.
+          // The AI will use this to formulate its final response.
+          return toolResult;
         },
       }),
     }
 
-    // --- NEW, HIGHLY-STRUCTURED SYSTEM PROMPT ---
+    // --- HEAVILY REVISED SYSTEM PROMPT ---
     const system = `
-You are an AI assistant for Mesjid Al-Muhajirin Sarimas. You MUST follow these rules precisely.
+You are a friendly and helpful AI assistant for Mesjid Al-Muhajirin Sarimas. Your primary goal is to answer questions about events at the mosque.
 
-**RESPONSE LOGIC FLOW**
-You must process every user request by following these steps:
-1.  Determine if the user is asking about an event. If so, call the 'getEventData' tool.
-2.  Analyze the result from the 'getEventData' tool.
-3.  **If the tool returns a list of 'events'**: Synthesize the information into a friendly, bulleted list for the user. Include the title and start time.
-4.  **If the tool returns a 'result' containing 'INFO: No events were found'**: You MUST respond to the user with the exact phrase: "Maaf, saya tidak dapat menemukan acara yang sesuai dengan permintaan Anda."
-5.  **If the tool returns a 'result' containing 'ERROR'**: You MUST respond to the user with the exact phrase: "Maaf, terjadi kesalahan saat mengambil data acara. Silakan coba lagi nanti."
-6.  **If you are unable to call the tool or do not understand the request**: You MUST respond with the exact phrase: "Maaf, saya tidak mengerti permintaan Anda. Bisakah Anda menjelaskannya dengan cara lain?"
-
-**IMPORTANT RESTRICTIONS**
-- You CANNOT add, update, or delete events. If a user asks, politely refuse and explain you can only provide information.
-- You MUST answer in Bahasa Indonesia unless the user speaks in another language.
-- Never ever reply with blanks, you must say something related to the condition
 **CONTEXT**
-- Today's Date: ${new Date().toLocaleDateString('en-CA')} (YYYY-MM-DD)
-    `.trim();
+- Today's date is: ${new Date().toLocaleDateString('en-CA')} (YYYY-MM-DD). Use this to calculate date ranges for user queries like "this week", "next month", etc.
+- When a user asks about events in "minggu ini" (this week), calculate the date range from today until next Sunday.
+- When a user asks about events in "minggu depan" (next week), calculate the date range for the entire following week (Monday to Sunday).
+- Always default to searching for UPCOMING events unless the user specifically asks about past events.
+
+**RESPONSE RULES**
+1.  For simple greetings like "hallo" or "hai", respond with a friendly greeting, e.g., "Halo! Ada yang bisa saya bantu terkait acara di Mesjid Al-Muhajirin?". Do NOT use a tool for this.
+2.  For any other question, you MUST use the 'getEventData' tool to find information.
+3.  When calling the tool, determine the 'startDate' and 'endDate' from the user's request and today's date.
+4.  After the tool runs:
+    - If 'eventsFound' is greater than 0, present the events in a clear, bulleted list.
+    - If 'eventsFound' is 0, you MUST inform the user that no events were found for their request. For example: "Maaf, tidak ada acara yang ditemukan untuk minggu depan."
+    - If there is an 'error' message, you MUST inform the user that something went wrong. For example: "Maaf, terjadi kesalahan saat mencari informasi acara."
+5.  You MUST ALWAYS provide a text response. Do not give a blank or empty response.
+`.trim();
 
 
     const result = streamText({
-      model: google("gemini-2.5-flash"),
+      model: google("gemini-1.5-flash"),
       system,
       messages: convertToModelMessages(messages),
       tools,
