@@ -7,7 +7,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Trash2, Plus, Link as LinkIcon, X, Loader2, Sparkles, UploadCloud, FileText } from "lucide-react"
+// --- NEW --- Import Dialog components and Edit icon
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog"
+import { Trash2, Plus, Link as LinkIcon, X, Loader2, Sparkles, UploadCloud, FileText, Edit } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 
 type LinkItem = { url: string; label: string; path?: string; type: 'link' | 'file' }
@@ -24,6 +26,11 @@ export default function KnowledgeAdminPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [isSavingWithAi, setIsSavingWithAi] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
+  
+  // --- NEW --- State to manage the note currently being edited
+  const [editingNote, setEditingNote] = useState<NoteItem | null>(null)
+  const [isUpdating, setIsUpdating] = useState(false)
+
 
   useEffect(() => {
     const fetchData = async () => {
@@ -34,6 +41,10 @@ export default function KnowledgeAdminPage() {
     fetchData()
   }, [])
   
+  // All your existing functions (handleFileUpload, handleAddNewCategory, etc.) go here...
+  // ... (no changes needed to them, so they are omitted for brevity)
+  // ... Paste all your functions from handleFileUpload to deleteNote here ...
+
   async function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]; if (!file) return;
     setIsUploading(true)
@@ -52,9 +63,12 @@ export default function KnowledgeAdminPage() {
     const res = await fetch("/api/note-categories", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newCategoryName.trim() }) })
     if (res.ok) {
       const { data: newCategory } = await res.json()
-      // Also update the main category list
       setCategories(prev => [...prev, newCategory].sort((a,b) => a.name.localeCompare(b.name)))
       setForm(prev => ({ ...prev, category_id: newCategory.id }))
+      // --- NEW --- Also update category in edit modal if it's open
+      if (editingNote) {
+        setEditingNote(prev => prev ? { ...prev, category_id: newCategory.id } : null)
+      }
     } else { const { error } = await res.json(); alert(`Gagal menambah kategori: ${error}`) }
   }
   
@@ -103,7 +117,6 @@ export default function KnowledgeAdminPage() {
     }
   }
   
-  // --- THIS IS THE IMPLEMENTED AI FUNCTION ---
   async function addNoteWithAi() {
     const { title, content, links } = form;
     if (!title.trim()) { alert("Judul tidak boleh kosong untuk diproses oleh AI."); return; }
@@ -121,7 +134,6 @@ export default function KnowledgeAdminPage() {
       if (res.ok) {
         const { data } = await res.json()
         setNotes(prev => [data, ...prev])
-        // If AI created a new category, we should update our category list
         const categoryExists = categories.some(c => c.id === data.category_id);
         if (!categoryExists && data.category_id) {
             setCategories(prev => [...prev, { id: data.category_id, name: data.category_name }].sort((a,b) => a.name.localeCompare(b.name)));
@@ -146,17 +158,56 @@ export default function KnowledgeAdminPage() {
     else alert("Gagal menghapus catatan.")
   }
 
+  // --- NEW --- Function to handle the update submission
+  async function handleUpdateNote() {
+    if (!editingNote) return;
+    if (!editingNote.title.trim()) {
+      alert("Judul tidak boleh kosong.");
+      return;
+    }
+    setIsUpdating(true);
+    try {
+      const res = await fetch("/api/notes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingNote.id,
+          title: editingNote.title,
+          content: editingNote.content,
+          category_id: editingNote.category_id,
+        }),
+      });
+
+      if (res.ok) {
+        const { data: updatedNote } = await res.json();
+        // Update the note in the main list
+        setNotes(prev => prev.map(n => n.id === updatedNote.id ? updatedNote : n));
+        setEditingNote(null); // Close the modal
+        alert("Catatan berhasil diperbarui!");
+      } else {
+        const { error } = await res.json();
+        alert(`Gagal memperbarui catatan: ${error || "Unknown error"}`);
+      }
+    } catch (e) {
+      alert("Terjadi kesalahan koneksi saat memperbarui.");
+    } finally {
+      setIsUpdating(false);
+    }
+  }
+
+
   return (
     <div className="space-y-8">
+      {/* --- The "Add New Note" Card remains unchanged --- */}
       <Card>
         <CardHeader><CardTitle>Tambah Basis Pengetahuan</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {/* All the JSX for the add form goes here, no changes needed */}
+           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1"><Label htmlFor="title">Judul (wajib)</Label><Input id="title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Contoh: Sejarah Masjid"/></div>
             <div className="space-y-1"><Label htmlFor="category">Kategori</Label><Select value={form.category_id} onValueChange={handleCategoryChange}><SelectTrigger><SelectValue placeholder="Pilih kategori... (opsional)" /></SelectTrigger><SelectContent><SelectItem value={CREATE_NEW_CATEGORY_VALUE} className="font-semibold text-blue-600">+ Buat Kategori Baru...</SelectItem>{categories.map(cat => <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>)}</SelectContent></Select></div>
           </div>
           <div className="space-y-1"><Label htmlFor="content">Isi Konten (opsional jika ada tautan/file)</Label><Textarea id="content" value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} placeholder="Tulis catatan, ringkasan, atau info penting..." rows={5}/></div>
-          
           <div className="space-y-3 rounded-lg border p-4">
             <h4 className="font-medium">Tautan & File Terkait (opsional jika ada konten)</h4>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_1fr_auto] items-end">
@@ -184,7 +235,6 @@ export default function KnowledgeAdminPage() {
               ))}
             </div>
           </div>
-          
           <div className="flex items-center gap-2">
             <Button onClick={addNote} disabled={isSaving || isSavingWithAi} className="bg-neutral-900 hover:bg-black w-32">{isSaving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Menyimpan...</> : <><Plus className="mr-2 h-4 w-4" /> Simpan</>}</Button>
             <Button onClick={addNoteWithAi} disabled={isSaving || isSavingWithAi} variant="ghost" className="text-blue-600 hover:bg-blue-50 hover:text-blue-700 w-44">{isSavingWithAi ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Memproses...</> : <><Sparkles className="mr-2 h-4 w-4" /> Simpan Dengan AI</>}</Button>
@@ -192,6 +242,8 @@ export default function KnowledgeAdminPage() {
         </CardContent>
       </Card>
 
+
+      {/* --- The "List of Notes" Card --- */}
       <Card>
         <CardHeader><CardTitle>Daftar Pengetahuan</CardTitle></CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
@@ -200,8 +252,16 @@ export default function KnowledgeAdminPage() {
             <div key={n.id} className="flex flex-col rounded-lg border bg-white">
               <div className="border-b p-4">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">{n.category_name && <Badge variant="secondary" className="mb-2">{n.category_name}</Badge>}<h3 className="truncate font-semibold text-neutral-900">{n.title || "Tanpa Judul"}</h3><p className="text-xs text-neutral-600">{new Date(n.created_at).toLocaleString("id-ID")}</p></div>
-                  <Button variant="destructive" size="icon" onClick={() => deleteNote(n.id)} aria-label="Hapus"><Trash2 className="h-4 w-4" /></Button>
+                  <div className="min-w-0">
+                    {n.category_name && <Badge variant="secondary" className="mb-2">{n.category_name}</Badge>}
+                    <h3 className="truncate font-semibold text-neutral-900">{n.title || "Tanpa Judul"}</h3>
+                    <p className="text-xs text-neutral-600">{new Date(n.created_at).toLocaleString("id-ID")}</p>
+                  </div>
+                  {/* --- NEW --- Action buttons container */}
+                  <div className="flex shrink-0 gap-1">
+                    <Button variant="outline" size="icon" onClick={() => setEditingNote(n)} aria-label="Edit"><Edit className="h-4 w-4" /></Button>
+                    <Button variant="destructive" size="icon" onClick={() => deleteNote(n.id)} aria-label="Hapus"><Trash2 className="h-4 w-4" /></Button>
+                  </div>
                 </div>
               </div>
               <div className="flex-grow p-4"><p className="whitespace-pre-wrap text-sm text-neutral-800">{n.content}</p></div>
@@ -221,6 +281,56 @@ export default function KnowledgeAdminPage() {
           ))}
         </CardContent>
       </Card>
+
+      {/* --- NEW --- The Edit Modal Dialog. It lives here but is only visible when `editingNote` is not null. */}
+      {editingNote && (
+        <Dialog open={!!editingNote} onOpenChange={(isOpen) => !isOpen && setEditingNote(null)}>
+          <DialogContent className="sm:max-w-[625px]">
+            <DialogHeader>
+              <DialogTitle>Edit Catatan</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="space-y-1">
+                <Label htmlFor="edit-title">Judul</Label>
+                <Input id="edit-title" value={editingNote.title} onChange={(e) => setEditingNote({ ...editingNote, title: e.target.value })}/>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="edit-category">Kategori</Label>
+                <Select
+                  value={editingNote.category_id || ""}
+                  onValueChange={(value) => {
+                    if (value === CREATE_NEW_CATEGORY_VALUE) {
+                        handleAddNewCategory(); // Re-use the same function
+                    } else {
+                        setEditingNote({ ...editingNote, category_id: value })
+                    }
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder="Pilih kategori..." /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={CREATE_NEW_CATEGORY_VALUE} className="font-semibold text-blue-600">+ Buat Kategori Baru...</SelectItem>
+                    {categories.map(cat => <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="edit-content">Isi Konten</Label>
+                <Textarea id="edit-content" value={editingNote.content || ""} onChange={(e) => setEditingNote({ ...editingNote, content: e.target.value })} rows={8}/>
+              </div>
+              <p className="text-sm text-neutral-600">Catatan: Tautan dan file yang terkait tidak dapat diubah dari sini.</p>
+            </div>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button type="button" variant="secondary">Batal</Button>
+              </DialogClose>
+              <Button type="submit" onClick={handleUpdateNote} disabled={isUpdating}>
+                {isUpdating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Simpan Perubahan
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }
