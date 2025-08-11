@@ -1,3 +1,4 @@
+// app/api/finance/route.ts  (or pages/api/finance.ts depending on your app structure)
 import { NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/lib/supabase/admin"
 
@@ -42,11 +43,18 @@ export async function GET(req: Request) {
 
     const { data: transactions, error: transactionsError, count } = await query
     if (transactionsError) throw transactionsError
-    
-    const safeTransactions = transactions || []
 
-    const income = safeTransactions.filter((i) => i.type === "income").reduce((s, i) => s + i.amount, 0)
-    const expense = safeTransactions.filter((i) => i.type === "expense").reduce((s, i) => s + i.amount, 0)
+    // normalize response to expected shapes:
+    const safeTransactions = Array.isArray(transactions) ? transactions : []
+    const safeCount = typeof count === "number" ? count : (safeTransactions.length || 0)
+
+    // compute totals defensively
+    const income = safeTransactions
+      .filter((i) => i?.type === "income")
+      .reduce((s, i) => s + (Number(i?.amount) || 0), 0)
+    const expense = safeTransactions
+      .filter((i) => i?.type === "expense")
+      .reduce((s, i) => s + (Number(i?.amount) || 0), 0)
     const balance = income - expense
     const totals = { income, expense, balance }
 
@@ -55,11 +63,11 @@ export async function GET(req: Request) {
         totals,
         transactions: safeTransactions,
         categories,
-        count: count ?? 0,
+        count: safeCount,
       },
     })
   } catch (error: any) {
     console.error("API Finance Error:", error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: error?.message || "Unknown error" }, { status: 500 })
   }
 }
