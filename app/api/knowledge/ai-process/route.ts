@@ -30,7 +30,7 @@ export async function POST(req: Request) {
 
     // --- MODIFIED --- The main prompt is now more direct about using Indonesian.
     const { object: aiResponse } = await generateObject({
-      model: google("gemini-1.5-flash"),
+      model: google("gemini-2.5-flash"),
       schema: aiResponseSchema,
       prompt: `Anda adalah asisten cerdas untuk sebuah website masjid.
       Tugas Anda adalah untuk memproses catatan yang diberikan oleh admin.
