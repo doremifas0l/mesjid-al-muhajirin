@@ -10,10 +10,14 @@ type LinkItem = {
   type: 'link' | 'file';
 }
 
+// --- MODIFIED REQUEST PAYLOAD (with new fields) ---
 type RequestPayload = {
   title: string;
   content: string;
   links: LinkItem[];
+  public: boolean;
+  image_url: string | null;
+  image_path: string | null;
 };
 
 export async function POST(req: Request) {
@@ -25,6 +29,8 @@ export async function POST(req: Request) {
     if (categoriesError) throw new Error(`Could not fetch categories: ${categoriesError.message}`);
     const categoryNames = categories?.map(c => c.name) || [];
 
+    // --- THIS ENTIRE SECTION IS PRESERVED AND UNCHANGED ---
+    // It is crucial for reading documents, transcribing videos, and scraping sites.
     let externalContent = "";
     if (body.links && body.links.length > 0) {
       for (const link of body.links) {
@@ -68,8 +74,6 @@ export async function POST(req: Request) {
           }
         } catch (e: any) {
           console.warn(`Could not process content for ${link.label} (${link.url}):`, e.message);
-          
-          // --- IMPROVED ERROR HANDLING ---
           let failureReason = "terjadi kesalahan umum saat memproses";
           if (e.message.toLowerCase().includes("transcript is disabled") || e.message.toLowerCase().includes("no transcripts found")) {
               failureReason = "tidak ditemukan transkrip (subtitle/caption) untuk video ini";
@@ -80,15 +84,16 @@ export async function POST(req: Request) {
         }
       }
     }
+    // --- END OF PRESERVED SECTION ---
+
 
     const aiResponseSchema = z.object({
         enhanced_content: z.string().describe("Tingkatkan dan perbaiki konten. Buat agar jelas, terstruktur, dan informatif. Gunakan Bahasa Indonesia yang baik dan benar."),
         suggested_category_name: z.string().describe(`Kategori yang paling cocok dari daftar ini: [${categoryNames.join(", ")}]. Jika tidak ada, buat kategori baru yang relevan dalam Bahasa Indonesia (maksimal 3 kata).`),
     });
 
-    // --- IMPROVED AI PROMPT ---
     const { object: aiResponse } = await generateObject({
-      model: google("gemini-2.5-flash"),
+      model: google("gemini-1.5-flash"),
       schema: aiResponseSchema,
       prompt: `Anda adalah asisten cerdas yang bertugas merangkum informasi untuk website masjid.
       Proses dan gabungkan semua informasi berikut menjadi satu catatan yang utuh dan informatif.
@@ -118,16 +123,27 @@ export async function POST(req: Request) {
       category_id = newCategory.id;
     }
 
+    // --- MODIFIED PAYLOAD TO INSERT (includes new fields) ---
     const payloadToInsert = {
       title: body.title,
       content: enhanced_content,
       category_id: category_id,
       links: body.links.length > 0 ? body.links : null,
+      public: body.public,
+      image_url: body.image_url,
+      image_path: body.image_path,
     };
 
-    const { data: finalNote, error: insertError } = await admin.from("notes").insert(payloadToInsert).select(`id, title, content, created_at, links, category_id, note_categories ( name )`).single();
+    // --- MODIFIED .select() TO RETURN NEW FIELDS ---
+    const { data: finalNote, error: insertError } = await admin
+        .from("notes")
+        .insert(payloadToInsert)
+        .select(`id, title, content, created_at, links, category_id, public, image_url, image_path, note_categories ( name )`)
+        .single();
+
     if (insertError) throw new Error(`Could not save final note: ${insertError.message}`);
     
+    // --- MODIFIED RESHAPED DATA (includes new fields) ---
     const reshapedData = {
       id: finalNote.id,
       title: finalNote.title,
@@ -135,7 +151,10 @@ export async function POST(req: Request) {
       created_at: finalNote.created_at,
       links: finalNote.links,
       category_id: finalNote.category_id,
-      category_name: (finalNote.note_categories as any)?.name || suggested_category_name
+      category_name: (finalNote.note_categories as any)?.name || suggested_category_name,
+      public: finalNote.public,
+      image_url: finalNote.image_url,
+      image_path: finalNote.image_path,
     };
     return NextResponse.json({ data: reshapedData });
 
