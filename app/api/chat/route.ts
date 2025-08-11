@@ -83,10 +83,11 @@ You are a smart, conversational AI assistant for Mesjid Al-Muhajirin. Your prima
     -   If the tool returns no events, clearly state that nothing was found for their request.
     -   If the tool returns an error, apologize for the system error.
 5.  **NEVER give a blank response.** If you are totally confused, just say: "Maaf, saya kurang mengerti. Bisa tolong perjelas pertanyaannya?"
+6.  You can answer question that is not offensive with your own knowledge
 `.trim();
 
     const result = streamText({
-      model: google("gemini-1.5-flash"),
+      model: google("gemini-2.5-flash"),
       system,
       messages: convertToModelMessages(messages),
       tools,
