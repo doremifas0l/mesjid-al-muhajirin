@@ -1,10 +1,12 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link" // Import Link
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
-import { Skeleton } from "@/components/ui/skeleton" // Using Skeleton for loading state
+import { Skeleton } from "@/components/ui/skeleton"
+import { Button } from "@/components/ui/button" // Import Button
 
 // Define the data structure we expect from our new API
 type Totals = { income: number; expense: number; balance: number }
@@ -110,27 +112,32 @@ export default function FinancePreview() {
           <CardHeader><CardTitle>Total Pemasukan</CardTitle></CardHeader>
           <CardContent className="text-2xl font-semibold text-emerald-700">
             {data.totals.income.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
-          </CardContent>
+          </Ayrıntılar>
         </Card>
         <Card>
           <CardHeader><CardTitle>Total Pengeluaran</CardTitle></CardHeader>
           <CardContent className="text-2xl font-semibold text-rose-700">
             {data.totals.expense.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
-          </CardContent>
+          </Ayrıntılar>
         </Card>
         <Card>
           <CardHeader><CardTitle>Saldo</CardTitle></CardHeader>
           <CardContent className={"text-2xl font-semibold " + (data.totals.balance >= 0 ? "text-neutral-900" : "text-rose-700")}>
             {data.totals.balance.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
-          </CardContent>
+          </Ayrıntılar>
         </Card>
       </div>
 
       <Card className="mt-6">
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>
             {selectedCategory === "Semua" ? "Transaksi Terbaru" : `Transaksi Terbaru • ${selectedCategory}`}
           </CardTitle>
+          <Button asChild variant="link" className="text-sm">
+            <Link href="/admin/finance/transactions">
+              Lihat Semua
+            </Link>
+          </Button>
         </CardHeader>
         <CardContent className="space-y-3">
           {data.recent.length === 0 ? (
@@ -157,7 +164,6 @@ export default function FinancePreview() {
   )
 }
 
-// A helper component for the loading state to keep the main component clean
 function FinanceSkeleton() {
   return (
     <section className="mx-auto max-w-6xl px-4 py-12 sm:py-16">
