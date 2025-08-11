@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-// --- NEW --- Import Dialog components and Edit icon
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog"
 import { Trash2, Plus, Link as LinkIcon, X, Loader2, Sparkles, UploadCloud, FileText, Edit } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -26,11 +25,8 @@ export default function KnowledgeAdminPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [isSavingWithAi, setIsSavingWithAi] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
-  
-  // --- NEW --- State to manage the note currently being edited
   const [editingNote, setEditingNote] = useState<NoteItem | null>(null)
   const [isUpdating, setIsUpdating] = useState(false)
-
 
   useEffect(() => {
     const fetchData = async () => {
@@ -40,10 +36,6 @@ export default function KnowledgeAdminPage() {
     }
     fetchData()
   }, [])
-  
-  // All your existing functions (handleFileUpload, handleAddNewCategory, etc.) go here...
-  // ... (no changes needed to them, so they are omitted for brevity)
-  // ... Paste all your functions from handleFileUpload to deleteNote here ...
 
   async function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]; if (!file) return;
@@ -63,15 +55,15 @@ export default function KnowledgeAdminPage() {
     const res = await fetch("/api/note-categories", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newCategoryName.trim() }) })
     if (res.ok) {
       const { data: newCategory } = await res.json()
-      setCategories(prev => [...prev, newCategory].sort((a,b) => a.name.localeCompare(b.name)))
-      setForm(prev => ({ ...prev, category_id: newCategory.id }))
-      // --- NEW --- Also update category in edit modal if it's open
+      setCategories(prev => [...prev, newCategory].sort((a, b) => a.name.localeCompare(b.name)))
       if (editingNote) {
         setEditingNote(prev => prev ? { ...prev, category_id: newCategory.id } : null)
+      } else {
+        setForm(prev => ({ ...prev, category_id: newCategory.id }))
       }
     } else { const { error } = await res.json(); alert(`Gagal menambah kategori: ${error}`) }
   }
-  
+
   function handleCategoryChange(value: string) {
     if (value === CREATE_NEW_CATEGORY_VALUE) handleAddNewCategory()
     else setForm(prev => ({ ...prev, category_id: value }))
@@ -116,11 +108,20 @@ export default function KnowledgeAdminPage() {
       setIsSaving(false)
     }
   }
-  
+
+  // --- FULLY-FUNCTIONAL AI HANDLER ---
   async function addNoteWithAi() {
+    // Now correctly includes 'links' from the form
     const { title, content, links } = form;
-    if (!title.trim()) { alert("Judul tidak boleh kosong untuk diproses oleh AI."); return; }
-    if (!content.trim()) { alert("Isi Konten tidak boleh kosong untuk diproses oleh AI."); return; }
+    if (!title.trim()) {
+      alert("Judul tidak boleh kosong untuk diproses oleh AI.");
+      return;
+    }
+    // AI can now process with just a title and links, content is optional
+    if (!content.trim() && links.length === 0) {
+      alert("Harap isi Konten atau tambahkan Tautan/File untuk diproses oleh AI.");
+      return;
+    }
     if (isSaving || isSavingWithAi) return;
 
     setIsSavingWithAi(true);
@@ -128,6 +129,7 @@ export default function KnowledgeAdminPage() {
       const res = await fetch("/api/knowledge/ai-process", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // The complete payload, including links, is now sent
         body: JSON.stringify({ title, content, links }),
       });
 
@@ -136,7 +138,7 @@ export default function KnowledgeAdminPage() {
         setNotes(prev => [data, ...prev])
         const categoryExists = categories.some(c => c.id === data.category_id);
         if (!categoryExists && data.category_id) {
-            setCategories(prev => [...prev, { id: data.category_id, name: data.category_name }].sort((a,b) => a.name.localeCompare(b.name)));
+          setCategories(prev => [...prev, { id: data.category_id, name: data.category_name }].sort((a, b) => a.name.localeCompare(b.name)));
         }
         setForm({ title: "", content: "", category_id: "", links: [] })
         alert("Catatan berhasil diproses dan disimpan dengan AI!")
@@ -158,7 +160,6 @@ export default function KnowledgeAdminPage() {
     else alert("Gagal menghapus catatan.")
   }
 
-  // --- NEW --- Function to handle the update submission
   async function handleUpdateNote() {
     if (!editingNote) return;
     if (!editingNote.title.trim()) {
@@ -180,9 +181,8 @@ export default function KnowledgeAdminPage() {
 
       if (res.ok) {
         const { data: updatedNote } = await res.json();
-        // Update the note in the main list
         setNotes(prev => prev.map(n => n.id === updatedNote.id ? updatedNote : n));
-        setEditingNote(null); // Close the modal
+        setEditingNote(null);
         alert("Catatan berhasil diperbarui!");
       } else {
         const { error } = await res.json();
@@ -195,31 +195,30 @@ export default function KnowledgeAdminPage() {
     }
   }
 
-
   return (
     <div className="space-y-8">
-      {/* --- The "Add New Note" Card remains unchanged --- */}
+      {/* Add New Knowledge Card */}
       <Card>
         <CardHeader><CardTitle>Tambah Basis Pengetahuan</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          {/* All the JSX for the add form goes here, no changes needed */}
-           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-1"><Label htmlFor="title">Judul (wajib)</Label><Input id="title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Contoh: Sejarah Masjid"/></div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-1"><Label htmlFor="title">Judul (wajib)</Label><Input id="title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Contoh: Sejarah Masjid" /></div>
             <div className="space-y-1"><Label htmlFor="category">Kategori</Label><Select value={form.category_id} onValueChange={handleCategoryChange}><SelectTrigger><SelectValue placeholder="Pilih kategori... (opsional)" /></SelectTrigger><SelectContent><SelectItem value={CREATE_NEW_CATEGORY_VALUE} className="font-semibold text-blue-600">+ Buat Kategori Baru...</SelectItem>{categories.map(cat => <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>)}</SelectContent></Select></div>
           </div>
-          <div className="space-y-1"><Label htmlFor="content">Isi Konten (opsional jika ada tautan/file)</Label><Textarea id="content" value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} placeholder="Tulis catatan, ringkasan, atau info penting..." rows={5}/></div>
+          <div className="space-y-1"><Label htmlFor="content">Isi Konten (opsional jika ada tautan/file)</Label><Textarea id="content" value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} placeholder="Tulis catatan, ringkasan, atau info penting..." rows={5} /></div>
+
           <div className="space-y-3 rounded-lg border p-4">
-            <h4 className="font-medium">Tautan & File Terkait (opsional jika ada konten)</h4>
+            <h4 className="font-medium">Tautan & File Terkait</h4>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_1fr_auto] items-end">
-              <div className="space-y-1"><Label htmlFor="linkLabel">Label Tautan</Label><Input id="linkLabel" value={currentLink.label} onChange={(e) => setCurrentLink({ ...currentLink, label: e.target.value })} placeholder="Contoh: Video Ceramah"/></div>
-              <div className="space-y-1"><Label htmlFor="linkUrl">URL Tautan</Label><Input id="linkUrl" value={currentLink.url} onChange={(e) => setCurrentLink({ ...currentLink, url: e.target.value })} placeholder="https://www.youtube.com/..."/></div>
-              <Button variant="outline" onClick={addLinkToForm}><LinkIcon className="mr-2 h-4 w-4"/> Tambah Tautan</Button>
+              <div className="space-y-1"><Label htmlFor="linkLabel">Label Tautan</Label><Input id="linkLabel" value={currentLink.label} onChange={(e) => setCurrentLink({ ...currentLink, label: e.target.value })} placeholder="Contoh: Video Ceramah" /></div>
+              <div className="space-y-1"><Label htmlFor="linkUrl">URL Tautan</Label><Input id="linkUrl" value={currentLink.url} onChange={(e) => setCurrentLink({ ...currentLink, url: e.target.value })} placeholder="https://www.youtube.com/..." /></div>
+              <Button variant="outline" onClick={addLinkToForm}><LinkIcon className="mr-2 h-4 w-4" /> Tambah Tautan</Button>
             </div>
             <div className="border-t pt-3">
               <Button asChild variant="outline" className="w-full sm:w-auto" disabled={isUploading}>
                 <Label>
-                  {isUploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin"/> Mengunggah...</> : <><UploadCloud className="mr-2 h-4 w-4"/> Unggah File (PDF, Teks)</>}
-                  <input type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.txt,.md,.docx" disabled={isUploading}/>
+                  {isUploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Mengunggah...</> : <><UploadCloud className="mr-2 h-4 w-4" /> Unggah File (PDF, DOCX, Teks)</>}
+                  <input type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.txt,.md,.docx" disabled={isUploading} />
                 </Label>
               </Button>
             </div>
@@ -227,23 +226,23 @@ export default function KnowledgeAdminPage() {
               {form.links.map((link, i) => (
                 <div key={i} className="flex items-center justify-between rounded-md bg-neutral-50 p-2 text-sm">
                   <a href={link.url} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-2 truncate pr-2 text-blue-600 hover:underline">
-                    {link.type === 'file' ? <FileText className="h-4 w-4 shrink-0"/> : <LinkIcon className="h-4 w-4 shrink-0"/>}
+                    {link.type === 'file' ? <FileText className="h-4 w-4 shrink-0" /> : <LinkIcon className="h-4 w-4 shrink-0" />}
                     <span className="font-semibold">{link.label}:</span> {link.url}
                   </a>
-                  <Button variant="ghost" size="icon" onClick={() => removeLinkFromForm(i)} className="h-6 w-6 shrink-0"><X className="h-4 w-4"/></Button>
+                  <Button variant="ghost" size="icon" onClick={() => removeLinkFromForm(i)} className="h-6 w-6 shrink-0"><X className="h-4 w-4" /></Button>
                 </div>
               ))}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={addNote} disabled={isSaving || isSavingWithAi} className="bg-neutral-900 hover:bg-black w-32">{isSaving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Menyimpan...</> : <><Plus className="mr-2 h-4 w-4" /> Simpan</>}</Button>
-            <Button onClick={addNoteWithAi} disabled={isSaving || isSavingWithAi} variant="ghost" className="text-blue-600 hover:bg-blue-50 hover:text-blue-700 w-44">{isSavingWithAi ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Memproses...</> : <><Sparkles className="mr-2 h-4 w-4" /> Simpan Dengan AI</>}</Button>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={addNote} disabled={isSaving || isSavingWithAi} className="bg-neutral-900 hover:bg-black w-full sm:w-32">{isSaving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Menyimpan...</> : <><Plus className="mr-2 h-4 w-4" /> Simpan</>}</Button>
+            <Button onClick={addNoteWithAi} disabled={isSaving || isSavingWithAi} variant="ghost" className="text-blue-600 hover:bg-blue-50 hover:text-blue-700 w-full sm:w-44">{isSavingWithAi ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Memproses...</> : <><Sparkles className="mr-2 h-4 w-4" /> Simpan Dengan AI</>}</Button>
           </div>
         </CardContent>
       </Card>
 
-
-      {/* --- The "List of Notes" Card --- */}
+      {/* List Knowledge Card */}
       <Card>
         <CardHeader><CardTitle>Daftar Pengetahuan</CardTitle></CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
@@ -254,10 +253,9 @@ export default function KnowledgeAdminPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     {n.category_name && <Badge variant="secondary" className="mb-2">{n.category_name}</Badge>}
-                    <h3 className="truncate font-semibold text-neutral-900">{n.title || "Tanpa Judul"}</h3>
+                    <h3 className="truncate font-semibold text-neutral-900" title={n.title || "Tanpa Judul"}>{n.title || "Tanpa Judul"}</h3>
                     <p className="text-xs text-neutral-600">{new Date(n.created_at).toLocaleString("id-ID")}</p>
                   </div>
-                  {/* --- NEW --- Action buttons container */}
                   <div className="flex shrink-0 gap-1">
                     <Button variant="outline" size="icon" onClick={() => setEditingNote(n)} aria-label="Edit"><Edit className="h-4 w-4" /></Button>
                     <Button variant="destructive" size="icon" onClick={() => deleteNote(n.id)} aria-label="Hapus"><Trash2 className="h-4 w-4" /></Button>
@@ -271,7 +269,7 @@ export default function KnowledgeAdminPage() {
                   <ul className="list-disc space-y-1 pl-5 text-sm">
                     {n.links.map((link, i) => (
                       <li key={i}><a href={link.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-blue-600 hover:underline">
-                        {link.type === 'file' ? <FileText className="h-3 w-3"/> : <LinkIcon className="h-3 w-3"/>} {link.label}
+                        {link.type === 'file' ? <FileText className="h-3 w-3" /> : <LinkIcon className="h-3 w-3" />} {link.label}
                       </a></li>
                     ))}
                   </ul>
@@ -282,7 +280,7 @@ export default function KnowledgeAdminPage() {
         </CardContent>
       </Card>
 
-      {/* --- NEW --- The Edit Modal Dialog. It lives here but is only visible when `editingNote` is not null. */}
+      {/* Edit Modal Dialog */}
       {editingNote && (
         <Dialog open={!!editingNote} onOpenChange={(isOpen) => !isOpen && setEditingNote(null)}>
           <DialogContent className="sm:max-w-[625px]">
@@ -292,7 +290,7 @@ export default function KnowledgeAdminPage() {
             <div className="grid gap-4 py-4">
               <div className="space-y-1">
                 <Label htmlFor="edit-title">Judul</Label>
-                <Input id="edit-title" value={editingNote.title} onChange={(e) => setEditingNote({ ...editingNote, title: e.target.value })}/>
+                <Input id="edit-title" value={editingNote.title} onChange={(e) => setEditingNote({ ...editingNote, title: e.target.value })} />
               </div>
               <div className="space-y-1">
                 <Label htmlFor="edit-category">Kategori</Label>
@@ -300,9 +298,9 @@ export default function KnowledgeAdminPage() {
                   value={editingNote.category_id || ""}
                   onValueChange={(value) => {
                     if (value === CREATE_NEW_CATEGORY_VALUE) {
-                        handleAddNewCategory(); // Re-use the same function
+                      handleAddNewCategory();
                     } else {
-                        setEditingNote({ ...editingNote, category_id: value })
+                      setEditingNote({ ...editingNote, category_id: value })
                     }
                   }}
                 >
@@ -315,7 +313,7 @@ export default function KnowledgeAdminPage() {
               </div>
               <div className="space-y-1">
                 <Label htmlFor="edit-content">Isi Konten</Label>
-                <Textarea id="edit-content" value={editingNote.content || ""} onChange={(e) => setEditingNote({ ...editingNote, content: e.target.value })} rows={8}/>
+                <Textarea id="edit-content" value={editingNote.content || ""} onChange={(e) => setEditingNote({ ...editingNote, content: e.target.value })} rows={8} />
               </div>
               <p className="text-sm text-neutral-600">Catatan: Tautan dan file yang terkait tidak dapat diubah dari sini.</p>
             </div>
