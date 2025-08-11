@@ -1,4 +1,3 @@
-// app/api/finance/route.ts  (or pages/api/finance.ts depending on your app structure)
 import { NextResponse } from "next/server"
 import { getSupabaseAdmin } from "@/lib/supabase/admin"
 
@@ -43,31 +42,29 @@ export async function GET(req: Request) {
 
     const { data: transactions, error: transactionsError, count } = await query
     if (transactionsError) throw transactionsError
+    
+    // --- START OF FIX ---
+    // This is the crucial fix. If the database returns `null` (no rows found),
+    // we convert it into an empty array `[]`.
+    const safeTransactions = transactions || []
+    // --- END OF FIX ---
 
-    // normalize response to expected shapes:
-    const safeTransactions = Array.isArray(transactions) ? transactions : []
-    const safeCount = typeof count === "number" ? count : (safeTransactions.length || 0)
-
-    // compute totals defensively
-    const income = safeTransactions
-      .filter((i) => i?.type === "income")
-      .reduce((s, i) => s + (Number(i?.amount) || 0), 0)
-    const expense = safeTransactions
-      .filter((i) => i?.type === "expense")
-      .reduce((s, i) => s + (Number(i?.amount) || 0), 0)
+    // Now we use `safeTransactions` to avoid any errors.
+    const income = safeTransactions.filter((i) => i.type === "income").reduce((s, i) => s + i.amount, 0)
+    const expense = safeTransactions.filter((i) => i.type === "expense").reduce((s, i) => s + i.amount, 0)
     const balance = income - expense
     const totals = { income, expense, balance }
 
     return NextResponse.json({
       data: {
         totals,
-        transactions: safeTransactions,
+        transactions: safeTransactions, // Send the safe array to the frontend
         categories,
-        count: safeCount,
+        count: count ?? 0,
       },
     })
   } catch (error: any) {
     console.error("API Finance Error:", error)
-    return NextResponse.json({ error: error?.message || "Unknown error" }, { status: 500 })
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
