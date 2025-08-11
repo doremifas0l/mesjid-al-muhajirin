@@ -1,117 +1,147 @@
-"use client"
+import { NextResponse } from "next/server"
+import { getSupabaseAdmin } from "@/lib/supabase/admin"
 
-import { useEffect, useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Trash2, Plus } from "lucide-react"
-
-type NoteItem = {
-  id: string
-  title: string
-  content: string
-  created_at: string
+// --- NEW --- Define the expected shape of the request body for creating/updating notes
+type NotePayload = {
+  id?: string
+  title?: string
+  content?: string
+  category_id?: string
+  links?: { url: string; label: string }[] // We expect an array of link objects
 }
 
-export default function KnowledgeAdminPage() {
-  const [notes, setNotes] = useState<NoteItem[]>([])
-  const [form, setForm] = useState<{ title: string; content: string }>({ title: "", content: "" })
+// GET function now fetches notes along with their category name
+export async function GET() {
+  const admin = getSupabaseAdmin()
+  
+  // --- MODIFIED ---
+  // The query now joins with `note_categories` to get the category name.
+  // The `links` column is also selected.
+  const { data, error } = await admin
+    .from("notes")
+    .select(`
+      id,
+      title,
+      content,
+      created_at,
+      links,
+      category_id,
+      note_categories ( name ) 
+    `)
+    .order("created_at", { ascending: false })
 
-  useEffect(() => {
-    ;(async () => {
-      const res = await fetch("/api/notes")
-      if (res.ok) {
-        const j = await res.json()
-        setNotes(j?.data || [])
-      }
-    })()
-  }, [])
-
-  async function addNote() {
-    const title = form.title.trim()
-    const content = form.content.trim()
-    if (!content) return
-    const res = await fetch("/api/notes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, content }),
-    })
-    if (res.ok) {
-      const { data } = await res.json()
-      setNotes((prev) => [data, ...prev])
-      setForm({ title: "", content: "" })
-    }
+  if (error) {
+    console.error("GET Notes Error:", error)
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  async function deleteNote(id: string) {
-    const res = await fetch("/api/notes", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    })
-    if (res.ok) {
-      setNotes((prev) => prev.filter((n) => n.id !== id))
-    }
+  // Reshape the data to be more frontend-friendly
+  const reshapedData = data.map(note => ({
+    ...note,
+    // @ts-ignore
+    category_name: note.note_categories?.name || null // Flatten the nested category name
+  }));
+
+  return NextResponse.json({ data: reshapedData })
+}
+
+// POST function now handles category_id and links
+export async function POST(req: Request) {
+  const admin = getSupabaseAdmin()
+  const body = (await req.json()) as NotePayload
+
+  if (!body?.content) {
+    return NextResponse.json({ error: "Missing content" }, { status: 400 })
   }
 
-  return (
-    <div className="space-y-8">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-neutral-900">Tambah Catatan</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3">
-          <div className="space-y-1">
-            <Label htmlFor="title">Judul</Label>
-            <Input
-              id="title"
-              value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
-              placeholder="Contoh: Tentang Masjid, Ringkasan Ceramah"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="content">Isi</Label>
-            <Textarea
-              id="content"
-              value={form.content}
-              onChange={(e) => setForm({ ...form, content: e.target.value })}
-              placeholder="Tulis catatan, ringkasan ceramah, atau info penting..."
-            />
-          </div>
-          <div>
-            <Button onClick={addNote} className="bg-neutral-900 hover:bg-black">
-              <Plus className="mr-2 h-4 w-4" />
-              Simpan
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+  // --- MODIFIED --- Build the payload with the new fields
+  const payloadToInsert = {
+    title: body.title?.trim() || "Catatan",
+    content: body.content.trim(),
+    category_id: body.category_id || null, // Can be null if no category is selected
+    links: body.links && body.links.length > 0 ? body.links : null // Store links if they exist
+  }
+  
+  const { data, error } = await admin
+    .from("notes")
+    .insert(payloadToInsert)
+    .select(`
+      id,
+      title,
+      content,
+      created_at,
+      links,
+      category_id,
+      note_categories ( name )
+    `)
+    .single()
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-neutral-900">Catatan</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
-          {notes.length === 0 && <p className="text-neutral-600">Belum ada catatan.</p>}
-          {notes.map((n) => (
-            <div key={n.id} className="rounded-md border p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-base font-semibold text-neutral-900">{n.title}</div>
-                  <div className="text-xs text-neutral-600">{new Date(n.created_at).toLocaleString()}</div>
-                </div>
-                <Button variant="destructive" size="icon" onClick={() => deleteNote(n.id)} aria-label="Hapus catatan">
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-              <p className="mt-3 whitespace-pre-wrap text-sm text-neutral-800">{n.content}</p>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-    </div>
-  )
+  if (error) {
+    console.error("POST Note Error:", error)
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+  
+  // Reshape the single returned object
+  const reshapedData = {
+    ...data,
+    // @ts-ignore
+    category_name: data.note_categories?.name || null
+  };
+
+  return NextResponse.json({ data: reshapedData })
+}
+
+// PUT function is now upgraded to handle new fields
+export async function PUT(req: Request) {
+  const admin = getSupabaseAdmin()
+  const body = (await req.json()) as NotePayload
+
+  if (!body?.id) {
+    return NextResponse.json({ error: "Missing id" }, { status: 400 })
+  }
+
+  // --- MODIFIED --- Dynamically build the update payload
+  const payloadToUpdate: { [key: string]: any } = {}
+  if (body.title !== undefined) payloadToUpdate.title = body.title
+  if (body.content !== undefined) payloadToUpdate.content = body.content
+  if (body.category_id !== undefined) payloadToUpdate.category_id = body.category_id
+  if (body.links !== undefined) payloadToUpdate.links = body.links
+
+  const { data, error } = await admin
+    .from("notes")
+    .update(payloadToUpdate)
+    .eq("id", body.id)
+    .select(`
+      id,
+      title,
+      content,
+      created_at,
+      links,
+      category_id,
+      note_categories ( name )
+    `)
+    .single()
+
+  if (error) {
+    console.error("PUT Note Error:", error)
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  const reshapedData = {
+    ...data,
+    // @ts-ignore
+    category_name: data.note_categories?.name || null
+  };
+
+  return NextResponse.json({ data: reshapedData })
+}
+
+// DELETE function remains the same, no changes needed
+export async function DELETE(req: Request) {
+  const admin = getSupabaseAdmin()
+  const { id } = (await req.json()) as { id?: string }
+  if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 })
+  const { error } = await admin.from("notes").delete().eq("id", id)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
 }
