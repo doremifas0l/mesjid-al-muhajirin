@@ -93,7 +93,7 @@ export async function POST(req: Request) {
     });
 
     const { object: aiResponse } = await generateObject({
-      model: google("gemini-1.5-flash"),
+      model: google("gemini-2.5-flash"),
       schema: aiResponseSchema,
       prompt: `Anda adalah asisten cerdas yang bertugas merangkum informasi untuk website masjid.
       Proses dan gabungkan semua informasi berikut menjadi satu catatan yang utuh dan informatif.
