@@ -5,22 +5,27 @@ import {
   tool,
   type UIMessage,
   convertToModelMessages,
-  CoreMessage,
-  ToolCallPart, // Import ToolCallPart
-  ToolResultPart,
 } from "ai"
 import { createClient } from "@supabase/supabase-js"
 
-// --- DATE HELPER FUNCTIONS (Unchanged) ---
+// --- DATE HELPER FUNCTIONS ---
+// This moves the complex date logic into reliable code, which was a key improvement.
 const getWeekDateRange = (offset = 0) => {
     const now = new Date();
-    const currentDay = now.getDay();
+    // In JS, Sunday is 0. We'll treat Monday as the start of the week.
+    const currentDay = now.getDay(); 
+    const daysToMonday = (currentDay === 0) ? -6 : 1 - currentDay;
+
+    // Set to the Monday of the target week
     const monday = new Date(now);
-    monday.setDate(now.getDate() - currentDay + (currentDay === 0 ? -6 : 1) + (offset * 7));
+    monday.setDate(now.getDate() + daysToMonday + (offset * 7));
     monday.setHours(0, 0, 0, 0);
+
+    // Set to the Sunday of the same week
     const sunday = new Date(monday);
     sunday.setDate(monday.getDate() + 6);
     sunday.setHours(23, 59, 59, 999);
+    
     return { startDate: monday, endDate: sunday };
 }
 
@@ -45,111 +50,105 @@ export async function POST(req: Request) {
       process.env.SUPABASE_ANON_KEY!
     )
 
-    // --- STEP 1: THE "WORKER" AI (Unchanged) ---
-    const workerSystemPrompt = `
-You are a data-fetching AI. Your only goal is to analyze the user's request and call the 'getEventData' tool correctly.
-- For "minggu ini", use timeframe "this-week".
-- For "minggu depan", use timeframe "next-week".
-- For general queries, use timeframe "all-upcoming".
-- Do not answer the user directly. Only call the tool.
-    `.trim()
-
     const tools = {
       getEventData: tool({
-        description: "Fetches event information from the database based on a timeframe.",
+        description:
+          "Fetches event information from the database based on a timeframe. Use this for all questions about events, schedules, or activities.",
         parameters: {
           type: "object",
           properties: {
-            query: { type: "string", description: "Keywords from an event title. Can be blank." },
-            timeframe: { type: 'string', enum: ['this-week', 'next-week', 'all-upcoming'], description: "The time window to search." }
+            query: {
+              type: "string",
+              description: "Keywords from an event title to search for. Can be blank.",
+            },
+            timeframe: {
+                type: 'string',
+                enum: ['this-week', 'next-week', 'all-upcoming', 'past'],
+                description: "The time window to search for events. Defaults to 'all-upcoming' if not specified by the user."
+            }
           },
+          required: ['timeframe'] // Make timeframe a required parameter for the tool
         } as const,
         execute: async (args) => {
-          console.log("Worker AI called getEventData with:", args);
-          const { query, timeframe = 'all-upcoming' } = args;
+          console.log("AI is calling getEventData with arguments:", args);
+          const { query, timeframe } = args;
+
           let startDate, endDate;
 
-          if (timeframe === 'this-week') ({ startDate, endDate } = getWeekDateRange(0));
-          if (timeframe === 'next-week') ({ startDate, endDate } = getWeekDateRange(1));
-          else startDate = new Date();
+          // Reliable date logic now lives here
+          if (timeframe === 'this-week') {
+              ({ startDate, endDate } = getWeekDateRange(0));
+          } else if (timeframe === 'next-week') {
+              ({ startDate, endDate } = getWeekDateRange(1));
+          } else if (timeframe === 'all-upcoming') {
+              startDate = new Date();
+          }
 
-          let dbQuery = supabase.from("events").select("title, starts_at, location, description, recurrence").order('starts_at', { ascending: true });
-          if(startDate) dbQuery = dbQuery.gte('starts_at', startDate.toISOString());
-          if(endDate) dbQuery = dbQuery.lte('starts_at', endDate.toISOString());
-          if (query && query.trim() !== "") dbQuery = dbQuery.or(`title.ilike.%${query}%,description.ilike.%${query}%`);
+          let dbQuery = supabase
+            .from("events")
+            .select("title, starts_at, location, description, recurrence")
+            .order('starts_at', { ascending: timeframe === 'past' ? false : true });
           
+          if (timeframe === 'past') {
+            dbQuery = dbQuery.lte('starts_at', new Date().toISOString());
+          } else {
+            if(startDate) dbQuery = dbQuery.gte('starts_at', startDate.toISOString());
+            if(endDate) dbQuery = dbQuery.lte('starts_at', endDate.toISOString());
+          }
+          
+          if (query && query.trim() !== "") {
+            dbQuery = dbQuery.or(`title.ilike.%${query}%,description.ilike.%${query}%`);
+          }
+
           const { data, error } = await dbQuery.limit(20);
-          
-          return { eventsFound: data?.length ?? 0, events: data, error: error?.message };
+
+          // Return a structured result that the AI can easily understand and act upon
+          return { 
+            eventsFound: data?.length ?? 0, 
+            events: data, 
+            error: error?.message,
+            timeframe: timeframe // Return the timeframe so the AI has context for its response
+          };
         },
       }),
-    };
-    
-    const workerResult = await streamText({
-      model: google("gemini-2.5-flash"),
-      system: workerSystemPrompt,
+    }
+
+    // A single, comprehensive system prompt for our one AI
+    const system = `
+You are a smart, polite, and reliable AI assistant for Mesjid Al-Muhajirin Sarimas. You will answer questions about mosque events in Bahasa Indonesia.
+
+**YOUR PROCESS**
+1.  Analyze the user's request to understand what they are asking for.
+2.  You MUST use the 'getEventData' tool to find information. Do not answer from your own knowledge.
+3.  Based on the tool's output, you MUST formulate a final, helpful response to the user.
+
+**TOOL USAGE RULES**
+- If the user asks about "minggu ini" or "pekan ini", set the 'timeframe' parameter to "this-week".
+- If the user asks about "minggu depan" or "pekan depan", set 'timeframe' to "next-week".
+- If the user asks about past events, set 'timeframe' to "past".
+- For general questions like "ada acara apa?", default to setting 'timeframe' to "all-upcoming".
+- Extract keywords like "kajian" or "jumat" into the 'query' parameter.
+
+**RESPONSE GENERATION RULES - YOU MUST FOLLOW THESE**
+- **If the tool returns 'eventsFound: 0'**: You MUST inform the user that no events were found for their specific request. Be specific. Example: "Maaf, tidak ada acara kajian yang ditemukan untuk minggu depan."
+- **If the tool returns events**: List them clearly using Markdown bullet points. Include the title (bolded), date/time, and description. Example: "Tentu, berikut adalah acara untuk minggu ini: * **Kajian Subuh**: Sabtu, 16 Agustus 2025 - Kajian Tafsir..."
+- **If the tool returns an 'error'**: Apologize and tell the user there was a system error.
+- **NEVER give a blank or empty response.** If you are confused, ask for clarification.
+`.trim();
+
+    const result = streamText({
+      model: google("gemini-1.5-flash"),
+      system,
       messages: convertToModelMessages(messages),
       tools,
     });
 
-    // --- CORRECTED LOGIC TO CAPTURE TOOL CALL AND RESULT ---
-    let toolCallPart: ToolCallPart | undefined;
-    let toolResultPart: ToolResultPart<any> | undefined;
-
-    for await (const part of workerResult.fullStream) {
-        if (part.type === 'tool-call') {
-            toolCallPart = part;
-        }
-        if (part.type === 'tool-result') {
-            toolResultPart = part;
-        }
-    }
-    
-    // --- STEP 2: THE "PRESENTER" AI ---
-    const presenterSystemPrompt = `
-You are a helpful and polite AI assistant for Mesjid Al-Muhajirin. Your task is to present event information to the user in a clear and friendly way, in Bahasa Indonesia.
-You will be given the result of a database search. Your job is to turn this data into a conversational response.
-**RESPONSE RULES:**
-- If 'eventsFound' is 0: Inform the user that no events were found. Example: "Maaf, tidak ada acara yang ditemukan untuk minggu depan."
-- If 'eventsFound' > 0: List each event using Markdown bullet points (*). For each event, include the **title** (bolded), **description**, and **waktu** (time).
-- If there is an 'error': Apologize and state there was a problem.
-- Do not mention the JSON object or the tool. Just present the final, clean answer.
-`.trim();
-
-    // --- CORRECTED MESSAGE ASSEMBLY ---
-    const presenterMessages: CoreMessage[] = [...convertToModelMessages(messages)];
-
-    if (toolCallPart && toolResultPart) {
-      // If a tool was used, add the assistant's decision to call the tool...
-      presenterMessages.push({
-        role: 'assistant',
-        content: [toolCallPart], 
-      });
-      // ...and then add the result of that tool call.
-      presenterMessages.push({
-        role: 'tool',
-        content: [toolResultPart],
-      });
-    } else {
-      // If no tool was called (e.g., for a simple greeting), add a default response.
-      presenterMessages.push({
-        role: 'assistant',
-        content: "Halo! Ada yang bisa saya bantu terkait acara di Mesjid Al-Muhajirin?",
-      });
-    }
-
-    // Call the presenter AI and stream ITS response to the user.
-    const presenterResult = await streamText({
-        model: google('gemini-2.5-flash'),
-        system: presenterSystemPrompt,
-        messages: presenterMessages, // This is now a valid message history
-    });
-    
-    return presenterResult.toUIMessageStreamResponse();
+    return result.toUIMessageStreamResponse();
 
   } catch (err) {
     console.error(err);
-    return new Response(JSON.stringify({ error: "Failed to process chat request." }), {
+    // Provide a more user-friendly error response on the server side
+    return new Response(JSON.stringify({ error: "An unexpected error occurred." }), {
       status: 500,
     });
   }
