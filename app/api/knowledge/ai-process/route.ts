@@ -1,16 +1,11 @@
-// app/api/knowledge/ai-process/route.ts
-
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { google } from "@ai-sdk/google";
 import { generateObject } from "ai";
 import { z } from "zod";
 
-// Import all the necessary parsers
-import { YoutubeTranscript } from 'youtube-transcript';
-import * as cheerio from 'cheerio';
-import pdf from 'pdf-parse'; // pdf-parse uses a default export
-import mammoth from 'mammoth';
+// NOTE: All heavy parsing libraries have been removed from the top-level static imports
+// to prevent build-time errors on Vercel. They are now imported dynamically below.
 
 type LinkItem = {
   url: string;
@@ -33,7 +28,7 @@ export async function POST(req: Request) {
     if (categoriesError) throw new Error(`Could not fetch categories: ${categoriesError.message}`);
     const categoryNames = categories?.map(c => c.name) || [];
 
-    // --- NEW MASTER LOGIC: FETCH AND PARSE ALL EXTERNAL CONTENT ---
+    // --- MASTER LOGIC: FETCH AND PARSE ALL EXTERNAL CONTENT ---
     let externalContent = "";
     if (body.links && body.links.length > 0) {
       for (const link of body.links) {
@@ -43,26 +38,34 @@ export async function POST(req: Request) {
 
           if (link.type === 'link') {
             if (link.url.includes("youtube.com") || link.url.includes("youtu.be")) {
+              // Dynamic import for youtube-transcript
+              const { YoutubeTranscript } = await import('youtube-transcript');
               const transcript = await YoutubeTranscript.fetchTranscript(link.url);
               extractedText = transcript.map(item => item.text).join(' ');
             } else {
-              // Generic webpage scraping with Cheerio
+              // Dynamic import for cheerio
+              const cheerio = await import('cheerio');
               const response = await fetch(link.url);
               const html = await response.text();
               const $ = cheerio.load(html);
-              // Remove script/style tags, then get the body text
               $('script, style, nav, footer, header').remove();
               extractedText = $('body').text().replace(/\s\s+/g, ' ').trim();
             }
           } else if (link.type === 'file') {
-            // Download the file content from its public URL
             const fileResponse = await fetch(link.url);
+            if (!fileResponse.ok) {
+                throw new Error(`Failed to fetch file: ${fileResponse.statusText}`);
+            }
             const fileBuffer = await fileResponse.arrayBuffer();
 
             if (link.label.endsWith('.pdf')) {
+              // Dynamic import for pdf-parse (the one causing the build error)
+              const pdf = (await import('pdf-parse')).default;
               const data = await pdf(Buffer.from(fileBuffer));
               extractedText = data.text;
             } else if (link.label.endsWith('.docx')) {
+              // Dynamic import for mammoth
+              const mammoth = (await import('mammoth')).default;
               const { value } = await mammoth.extractRawText({ buffer: Buffer.from(fileBuffer) });
               extractedText = value;
             } else if (link.label.endsWith('.txt') || link.label.endsWith('.md')) {
@@ -103,8 +106,6 @@ export async function POST(req: Request) {
       2. SARANKAN KATEGORI: Tentukan kategori yang paling cocok untuk ringkasan akhir dari daftar ini: [${categoryNames.join(", ")}]. Jika tidak ada yang pas, buat kategori baru yang singkat dan relevan.`,
     });
     
-    // ... (rest of your code to save the category and final note remains the same) ...
-    // This part does not need to be changed.
     const { enhanced_content, suggested_category_name } = aiResponse;
 
     let category_id = null;
@@ -135,8 +136,7 @@ export async function POST(req: Request) {
       created_at: finalNote.created_at,
       links: finalNote.links,
       category_id: finalNote.category_id,
-      // @ts-ignore
-      category_name: finalNote.note_categories?.name || suggested_category_name
+      category_name: (finalNote.note_categories as any)?.name || suggested_category_name
     };
     return NextResponse.json({ data: reshapedData });
 
