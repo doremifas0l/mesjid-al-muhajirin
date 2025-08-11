@@ -8,27 +8,6 @@ import {
 } from "ai"
 import { createClient } from "@supabase/supabase-js"
 
-// --- DATE HELPER FUNCTIONS (Unchanged and Reliable) ---
-const getWeekDateRange = (offset = 0) => {
-    const now = new Date();
-    const currentDay = now.getDay(); 
-    const daysToMonday = (currentDay === 0) ? -6 : 1 - currentDay;
-    const monday = new Date(now);
-    monday.setDate(now.getDate() + daysToMonday + (offset * 7));
-    monday.setHours(0, 0, 0, 0);
-    const sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6);
-    sunday.setHours(23, 59, 59, 999);
-    return { startDate: monday, endDate: sunday };
-}
-const getYearDateRange = (offset = 0) => {
-    const now = new Date();
-    const year = now.getFullYear() + offset;
-    const startDate = new Date(year, 0, 1); // Jan 1st
-    const endDate = new Date(year, 11, 31, 23, 59, 59, 999); // Dec 31st
-    return { startDate, endDate };
-}
-
 export const maxDuration = 30;
 
 export async function POST(req: Request) {
@@ -43,38 +22,35 @@ export async function POST(req: Request) {
 
     const tools = {
       getEventData: tool({
-        description: "Fetches event information from the database.",
+        description: "Gets a list of events from the database based on a date range.",
         parameters: {
           type: "object",
           properties: {
-            query: { type: "string", description: "Keywords from the event title." },
-            timeframe: {
-                type: 'string',
-                enum: ['this-week', 'next-week', 'next-year', 'past', 'all-upcoming'],
-                description: "The time window to search for events."
-            }
+            query: { type: "string", description: "Keywords to search for in the event title or description." },
+            // These are optional. The AI will provide them if it can infer them from the conversation.
+            startDate: { type: "string", description: "The start date of the search window, format YYYY-MM-DD." },
+            endDate: { type: "string", description: "The end date of the search window, format YYYY-MM-DD." },
           },
         } as const,
         execute: async (args) => {
           console.log("AI is calling getEventData with arguments:", args);
-          const { query, timeframe = 'all-upcoming' } = args; // Default here is a safety net
+          const { query, startDate, endDate } = args;
 
-          let startDate, endDate;
-
-          if (timeframe === 'this-week') ({ startDate, endDate } = getWeekDateRange(0));
-          else if (timeframe === 'next-week') ({ startDate, endDate } = getWeekDateRange(1));
-          else if (timeframe === 'next-year') ({ startDate, endDate } = getYearDateRange(1));
-          
           let dbQuery = supabase
             .from("events")
             .select("title, starts_at, location, description, recurrence")
-            .order('starts_at', { ascending: timeframe !== 'past' });
-          
-          if (timeframe === 'past') {
-            dbQuery = dbQuery.lte('starts_at', new Date().toISOString());
-          } else {
-            if (startDate) dbQuery = dbQuery.gte('starts_at', startDate.toISOString());
-            if (endDate) dbQuery = dbQuery.lte('starts_at', endDate.toISOString());
+            .order('starts_at', { ascending: true });
+
+          // --- SMART DEFAULTS ---
+          // If a start date is provided, use it. Otherwise, default to right now.
+          // This elegantly handles both specific queries and general "what's upcoming" questions.
+          dbQuery = dbQuery.gte('starts_at', startDate ? startDate : new Date().toISOString());
+
+          if (endDate) {
+            // Add an end date to the query only if it's provided.
+            const endOfDay = new Date(endDate);
+            endOfDay.setHours(23, 59, 59, 999); // Ensure we get events happening anytime on the end date
+            dbQuery = dbQuery.lte('starts_at', endOfDay.toISOString());
           }
           
           if (query && query.trim() !== "") {
@@ -82,35 +58,35 @@ export async function POST(req: Request) {
           }
 
           const { data, error } = await dbQuery.limit(25);
-          return { events: data, error: error?.message, _timeframe: timeframe };
+          return { events: data, error: error?.message };
         },
       }),
     }
 
-    // A simpler, more direct system prompt.
+    // --- The most important part: A prompt focused on conversation and context ---
     const system = `
-You are a helpful AI assistant for a mosque. Your only job is to answer questions about events by using the 'getEventData' tool. Answer in Bahasa Indonesia.
+You are a smart, conversational AI assistant for Mesjid Al-Muhajirin. Your primary goal is to help users find information about mosque events.
 
-**TOOL USAGE INSTRUCTIONS:**
-1.  Look for time-related words in the user's latest message.
-    - "minggu ini" or "pekan ini" -> use timeframe: 'this-week'
-    - "minggu depan" or "pekan depan" -> use timeframe: 'next-week'
-    - "minggu lalu" or "sebelumnya" -> use timeframe: 'past'
-    - "tahun depan" -> use timeframe: 'next-year'
-    - "terdekat" or "paling dekat" (nearest) -> use timeframe: 'all-upcoming'
-2.  Extract other keywords (e.g., "kajian") into the 'query' parameter.
-3.  **THE GOLDEN RULE:** If the user's request is unclear or has no time words, you MUST call the tool with the timeframe set to 'all-upcoming'. This is your default, safe action.
+**CONTEXT**
+- Today's Date is: ${new Date().toLocaleDateString('en-CA')} (Format: YYYY-MM-DD). Use this as your reference for all date-related questions.
 
-**RESPONSE GENERATION RULES:**
-- After the tool runs, you MUST give a text answer.
-- If the tool returns events, list them in a clear, bulleted format.
-- If the tool returns no events, you MUST explicitly tell the user. Example: "Maaf, tidak ada acara untuk [timeframe] yang ditemukan."
-- If the tool returns an error, apologize for the system issue.
-- **NEVER, under any circumstance, give a blank or empty response.**
+**INSTRUCTIONS**
+1.  **Analyze the full CONVERSATION HISTORY** to understand the user's request, especially for follow-up questions.
+2.  Your main task is to determine if the user is asking for events within a specific date range.
+3.  Based on the user's message and the conversation history, call the 'getEventData' tool.
+    -   **Examples of how to determine dates:**
+        -   User: "ada event apa hari rabu 13 agustus?" -> Call tool with startDate: '2025-08-13', endDate: '2025-08-13'.
+        -   User: "kalo minggu ini ada apa?" (what about this week?) -> Calculate the start and end dates for the current week and pass them to the tool.
+        -   User: "ada acara apa saja?" (general question) -> **Do not provide startDate or endDate**. The tool will correctly default to all upcoming events.
+4.  After the tool runs, you MUST generate a final response.
+    -   If the tool returns events, list them clearly. Format the date like this: "Rabu, 13 Agustus 2025".
+    -   If the tool returns no events, clearly state that nothing was found for their request.
+    -   If the tool returns an error, apologize for the system error.
+5.  **NEVER give a blank response.** If you are totally confused, just say: "Maaf, saya kurang mengerti. Bisa tolong perjelas pertanyaannya?"
 `.trim();
 
     const result = streamText({
-      model: google("gemini-2.5-flash"),
+      model: google("gemini-1.5-flash"),
       system,
       messages: convertToModelMessages(messages),
       tools,
