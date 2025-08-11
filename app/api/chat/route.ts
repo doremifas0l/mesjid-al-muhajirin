@@ -8,14 +8,12 @@ import {
 } from "ai"
 import { createClient } from "@supabase/supabase-js"
 
-// Allow streaming responses up to 30 seconds
 export const maxDuration = 30
 
 export async function POST(req: Request) {
   try {
     const { messages }: { messages: UIMessage[] } = await req.json()
 
-    // Check for all necessary credentials again
     if (
       !process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
       !process.env.SUPABASE_URL ||
@@ -26,17 +24,15 @@ export async function POST(req: Request) {
       })
     }
 
-    // Initialize the Supabase client
     const supabase = createClient(
       process.env.SUPABASE_URL!,
       process.env.SUPABASE_ANON_KEY!
     )
 
-    // Define the new tool for fetching event data
     const tools = {
       getEventData: tool({
         description:
-          "Get information about current, upcoming, or past events. Use this to answer questions about schedules, activities, or what's happening at the mosque.",
+          "Fetches a list of events from the database. Use this for any question about schedules, activities, or what's happening at the mosque.",
         parameters: {
           type: "object",
           properties: {
@@ -44,70 +40,89 @@ export async function POST(req: Request) {
               type: "string",
               enum: ["upcoming", "past"],
               description:
-                "Specify whether to look for 'upcoming' or 'past' events. Defaults to 'upcoming' if not specified.",
+                "Filter for 'upcoming' or 'past' events. Defaults to 'upcoming'.",
             },
             query: {
               type: "string",
-              description: "A specific event title or topic to search for, e.g., 'Kajian Rutin' or 'Idul Adha'.",
+              description: "Keywords from an event title or description to search for (e.g., 'Kajian Rutin'). Can be left blank to fetch all events for the given time period.",
             },
             limit: {
               type: "integer",
-              description: "The maximum number of events to return. Defaults to 5.",
+              description: "The maximum number of events to return. Defaults to 10.",
             }
           },
           additionalProperties: false,
         } as const,
-        execute: async ({ time_period = "upcoming", query, limit = 5 }) => {
-          // Select from the 'events' table
+        execute: async (args) => {
+          console.log("AI is calling getEventData with arguments:", args);
+
+          const { time_period = "upcoming", query, limit = 10 } = args;
+
           let dbQuery = supabase
             .from("events")
-            .select("title, starts_at, location, description, recurrence, attachment")
+            .select("title, starts_at, location, description, recurrence, attachment");
 
-          const now = new Date().toISOString()
+          const now = new Date().toISOString();
 
           if (time_period === "past") {
-            // For past events, find events that started before now
-            // and order them with the most recent first.
-            dbQuery = dbQuery.lte("starts_at", now).order("starts_at", { ascending: false })
+            dbQuery = dbQuery.lte("starts_at", now).order("starts_at", { ascending: false });
           } else {
-            // For upcoming events, find events starting from now
-            // and order them with the soonest first.
-            dbQuery = dbQuery.gte("starts_at", now).order("starts_at", { ascending: true })
+            dbQuery = dbQuery.gte("starts_at", now).order("starts_at", { ascending: true });
           }
           
-          if (query) {
-            // Search within the title and description for the user's query
-            dbQuery = dbQuery.or(`title.ilike.%${query}%,description.ilike.%${query}%`)
+          if (query && query.trim() !== "") {
+            dbQuery = dbQuery.or(`title.ilike.%${query}%,description.ilike.%${query}%`);
           }
 
-          const { data, error } = await dbQuery.limit(limit)
+          const { data, error } = await dbQuery.limit(limit);
 
           if (error) {
-            console.error("Supabase query error:", error)
-            return { error: `Failed to fetch event data: ${error.message}` }
+            console.error("Supabase query error:", error);
+            return { error: `Failed to fetch event data: ${error.message}` };
           }
+          
+          console.log("Data returned from Supabase:", data);
           
           if (!data || data.length === 0) {
-            return { result: "No events found matching the criteria." }
+            return { result: "No events were found matching the user's request. Please inform the user clearly." };
           }
           
-          return { events: data }
+          return { events: data };
         },
       }),
     }
 
-    // Update the system prompt to be aware of the new tool and today's date
-    const system = `You are a helpful assistant for Mesjid Al-Muhajirin Sarimas.
-- Answer user questions about events by calling the 'getEventData' tool.
-- Synthesize the information from the tool into a friendly and clear response.
-- If the tool returns no events, inform the user that no events were found.
-- Today's date is ${new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.`
+    // --- NEW, STRUCTURED SYSTEM PROMPT ---
+    const system = `
+You are an AI assistant for Mesjid Al-Muhajirin Sarimas. Your ONLY function is to provide information about mosque events by fetching data.
+
+**RESPONSE INSTRUCTIONS**
+1.  Analyze the user's message to understand what event information they are looking for.
+2.  Use the "getEventData" tool to find relevant events.
+3.  Present the information from the tool to the user in a clear, friendly, and helpful manner.
+
+**CAPABILITIES**
+- You CAN search for upcoming events.
+- You CAN search for past events.
+- You CAN filter events by keywords (e.g., "kajian", "idul adha").
+- You MUST answer in the same language as the user.
+
+**IMPORTANT RESTRICTIONS**
+- You CANNOT add, create, or schedule new events.
+- You CANNOT update, change, or modify existing events.
+- You CANNOT delete or cancel events.
+- If a user asks you to perform a restricted action (like creating an event), you MUST politely refuse and state that you can only provide information about existing events.
+
+**CONTEXT**
+- Today's Date: ${new Date().toLocaleDateString('en-CA')} (YYYY-MM-DD)
+    `.trim();
+
 
     const result = streamText({
-      model: google("gemini-2.5-flash"),
+      model: google("gemini-1.5-flash"),
       system,
       messages: convertToModelMessages(messages),
-      tools, // Pass the new tools object to the model
+      tools,
     })
 
     return result.toUIMessageStreamResponse()
