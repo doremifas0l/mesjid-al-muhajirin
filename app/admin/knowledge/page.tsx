@@ -10,7 +10,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Trash2, Plus, Link as LinkIcon, X, Loader2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 
-// Types and constants remain the same
 type LinkItem = { url: string; label: string }
 type NoteItem = { id: string; title: string; content: string; created_at: string; category_id: string | null; category_name: string | null; links: LinkItem[] | null }
 type CategoryItem = { id: string; name: string }
@@ -66,21 +65,16 @@ export default function KnowledgeAdminPage() {
     setForm(prev => ({ ...prev, links: prev.links.filter((_, i) => i !== index) }))
   }
 
-  // --- MODIFIED --- This function now includes clear validation at the start
   async function addNote() {
-    const { title, content, category_id, links } = form
-    
-    // --- VALIDATION LOGIC ---
+    const { title, content, links } = form
     if (!title.trim()) {
       alert("Judul tidak boleh kosong.")
-      return // Stop the function
+      return
     }
-    
     if (!content.trim() && links.length === 0) {
       alert("Harap isi Konten atau tambahkan setidaknya satu Tautan Terkait.")
-      return // Stop the function
+      return
     }
-    
     if (isSaving) return
 
     setIsSaving(true)
@@ -89,13 +83,12 @@ export default function KnowledgeAdminPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
-          title: title.trim(), 
-          content: content.trim(), 
-          category_id: category_id || null, 
-          links 
+          title: form.title.trim(), 
+          content: form.content.trim(), 
+          category_id: form.category_id || null, 
+          links: form.links 
         }),
       })
-
       if (res.ok) {
         const { data } = await res.json()
         setNotes(prev => [data, ...prev])
@@ -128,11 +121,9 @@ export default function KnowledgeAdminPage() {
         <CardHeader><CardTitle>Tambah Basis Pengetahuan</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {/* --- UI TWEAK --- Added (wajib) to the label */}
             <div className="space-y-1"><Label htmlFor="title">Judul (wajib)</Label><Input id="title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Contoh: Sejarah Masjid"/></div>
             <div className="space-y-1"><Label htmlFor="category">Kategori</Label><Select value={form.category_id} onValueChange={handleCategoryChange}><SelectTrigger><SelectValue placeholder="Pilih kategori... (opsional)" /></SelectTrigger><SelectContent><SelectItem value={CREATE_NEW_CATEGORY_VALUE} className="font-semibold text-blue-600">+ Buat Kategori Baru...</SelectItem>{categories.map(cat => <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>)}</SelectContent></Select></div>
           </div>
-          {/* --- UI TWEAK --- Clarified optionality */}
           <div className="space-y-1"><Label htmlFor="content">Isi Konten (opsional jika ada tautan)</Label><Textarea id="content" value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} placeholder="Tulis catatan, ringkasan, atau info penting..." rows={5}/></div>
           
           <div className="space-y-3 rounded-lg border p-4">
@@ -152,11 +143,19 @@ export default function KnowledgeAdminPage() {
             </div>
           </div>
           
-          <div><Button onClick={addNote} disabled={isSaving} className="bg-neutral-900 hover:bg-black w-32"><{isSaving ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Menyimpan...</>) : (<><Plus className="mr-2 h-4 w-4" /> Simpan</>)}</Button></div>
+          <div>
+            {/* --- THE FIX --- Corrected the invalid JSX syntax here */}
+            <Button onClick={addNote} disabled={isSaving} className="bg-neutral-900 hover:bg-black w-32">
+              {isSaving ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Menyimpan...</>
+              ) : (
+                <><Plus className="mr-2 h-4 w-4" /> Simpan</>
+              )}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
-      {/* The list of notes remains the same */}
       <Card>
         <CardHeader><CardTitle>Daftar Pengetahuan</CardTitle></CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
