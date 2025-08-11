@@ -7,15 +7,14 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Trash2, Plus, Link as LinkIcon, X } from "lucide-react"
+// --- MODIFIED --- Import Loader2 for the saving indicator
+import { Trash2, Plus, Link as LinkIcon, X, Loader2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 
-// Types remain the same
 type LinkItem = { url: string; label: string }
 type NoteItem = { id: string; title: string; content: string; created_at: string; category_id: string | null; category_name: string | null; links: LinkItem[] | null }
 type CategoryItem = { id: string; name: string }
 
-// --- NEW --- A special value for our "Create New" option
 const CREATE_NEW_CATEGORY_VALUE = "CREATE_NEW"
 
 export default function KnowledgeAdminPage() {
@@ -23,6 +22,9 @@ export default function KnowledgeAdminPage() {
   const [categories, setCategories] = useState<CategoryItem[]>([])
   const [form, setForm] = useState<{ title: string; content: string; category_id: string; links: LinkItem[] }>({ title: "", content: "", category_id: "", links: [] })
   const [currentLink, setCurrentLink] = useState<LinkItem>({ url: "", label: "" })
+  
+  // --- NEW --- State to track the saving process
+  const [isSaving, setIsSaving] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -53,7 +55,6 @@ export default function KnowledgeAdminPage() {
     }
   }
   
-  // --- MODIFIED --- This handler now checks for the special "Create New" value
   function handleCategoryChange(value: string) {
     if (value === CREATE_NEW_CATEGORY_VALUE) {
       handleAddNewCategory()
@@ -73,27 +74,43 @@ export default function KnowledgeAdminPage() {
     setForm(prev => ({ ...prev, links: prev.links.filter((_, i) => i !== index) }))
   }
 
+  // --- MODIFIED --- This function now handles loading states and feedback
   async function addNote() {
     const { title, content, category_id, links } = form
-    if (!content.trim()) return
-    const res = await fetch("/api/notes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: title.trim(), content: content.trim(), category_id: category_id || null, links }),
-    })
-    if (res.ok) {
-      const { data } = await res.json()
-      setNotes(prev => [data, ...prev])
-      setForm({ title: "", content: "", category_id: "", links: [] })
-    } else {
-      alert("Gagal menyimpan catatan.")
+    if (!content.trim() || isSaving) return
+
+    setIsSaving(true) // Start loading
+    try {
+      const res = await fetch("/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: title.trim(), content: content.trim(), category_id: category_id || null, links }),
+      })
+
+      if (res.ok) {
+        const { data } = await res.json()
+        setNotes(prev => [data, ...prev])
+        setForm({ title: "", content: "", category_id: "", links: [] })
+        alert("Catatan berhasil disimpan!") // Success feedback
+      } else {
+        const { error } = await res.json()
+        alert(`Gagal menyimpan catatan: ${error || "Unknown error"}`) // Error feedback
+      }
+    } catch (e) {
+      alert("Terjadi kesalahan koneksi.")
+    } finally {
+      setIsSaving(false) // Stop loading, regardless of outcome
     }
   }
 
   async function deleteNote(id: string) {
     if (!confirm("Apakah Anda yakin ingin menghapus catatan ini?")) return
     const res = await fetch("/api/notes", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) })
-    if (res.ok) setNotes(prev => prev.filter((n) => n.id !== id))
+    if (res.ok) {
+      setNotes(prev => prev.filter((n) => n.id !== id))
+    } else {
+      alert("Gagal menghapus catatan.")
+    }
   }
 
   return (
@@ -105,14 +122,10 @@ export default function KnowledgeAdminPage() {
             <div className="space-y-1"><Label htmlFor="title">Judul</Label><Input id="title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Contoh: Sejarah Masjid"/></div>
             <div className="space-y-1">
               <Label htmlFor="category">Kategori</Label>
-              {/* --- MODIFIED --- The Select component now uses the new handler */}
               <Select value={form.category_id} onValueChange={handleCategoryChange}>
                 <SelectTrigger><SelectValue placeholder="Pilih kategori... (opsional)" /></SelectTrigger>
                 <SelectContent>
-                  {/* --- MODIFIED --- Add the special "Create New" item at the top */}
-                  <SelectItem value={CREATE_NEW_CATEGORY_VALUE} className="font-semibold text-blue-600">
-                    + Buat Kategori Baru...
-                  </SelectItem>
+                  <SelectItem value={CREATE_NEW_CATEGORY_VALUE} className="font-semibold text-blue-600">+ Buat Kategori Baru...</SelectItem>
                   {categories.map(cat => <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -137,7 +150,16 @@ export default function KnowledgeAdminPage() {
             </div>
           </div>
           
-          <div><Button onClick={addNote} className="bg-neutral-900 hover:bg-black"><Plus className="mr-2 h-4 w-4" /> Simpan Catatan</Button></div>
+          {/* --- MODIFIED --- Button now shows loading state */}
+          <div>
+            <Button onClick={addNote} disabled={isSaving} className="bg-neutral-900 hover:bg-black w-32">
+              {isSaving ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Menyimpan...</>
+              ) : (
+                <><Plus className="mr-2 h-4 w-4" /> Simpan</>
+              )}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
