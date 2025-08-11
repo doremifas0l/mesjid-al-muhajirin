@@ -6,6 +6,7 @@ import {
   type UIMessage,
   convertToModelMessages,
   CoreMessage,
+  ToolCallPart, // Import ToolCallPart
   ToolResultPart,
 } from "ai"
 import { createClient } from "@supabase/supabase-js"
@@ -44,9 +45,7 @@ export async function POST(req: Request) {
       process.env.SUPABASE_ANON_KEY!
     )
 
-    // --- STEP 1: THE "WORKER" AI ---
-    // Its only job is to call the right tool with the right parameters.
-
+    // --- STEP 1: THE "WORKER" AI (Unchanged) ---
     const workerSystemPrompt = `
 You are a data-fetching AI. Your only goal is to analyze the user's request and call the 'getEventData' tool correctly.
 - For "minggu ini", use timeframe "this-week".
@@ -86,7 +85,6 @@ You are a data-fetching AI. Your only goal is to analyze the user's request and 
       }),
     };
     
-    // Call the worker AI, but do not stream the response to the user yet.
     const workerResult = await streamText({
       model: google("gemini-2.5-flash"),
       system: workerSystemPrompt,
@@ -94,51 +92,57 @@ You are a data-fetching AI. Your only goal is to analyze the user's request and 
       tools,
     });
 
-    // Find the result of the tool call from the worker's output.
-    let toolExecutionResult: ToolResultPart<any> | undefined;
+    // --- CORRECTED LOGIC TO CAPTURE TOOL CALL AND RESULT ---
+    let toolCallPart: ToolCallPart | undefined;
+    let toolResultPart: ToolResultPart<any> | undefined;
+
     for await (const part of workerResult.fullStream) {
+        if (part.type === 'tool-call') {
+            toolCallPart = part;
+        }
         if (part.type === 'tool-result') {
-            toolExecutionResult = part;
+            toolResultPart = part;
         }
     }
     
     // --- STEP 2: THE "PRESENTER" AI ---
-    // Its only job is to format the data from the worker into a beautiful response.
-    
     const presenterSystemPrompt = `
 You are a helpful and polite AI assistant for Mesjid Al-Muhajirin. Your task is to present event information to the user in a clear and friendly way, in Bahasa Indonesia.
-
-You will be given a JSON object containing the results of a database search. Your job is to turn this data into a conversational response.
-
+You will be given the result of a database search. Your job is to turn this data into a conversational response.
 **RESPONSE RULES:**
-- **If 'eventsFound' is 0**: Inform the user that no events were found for their specific request. For example: "Maaf, tidak ada acara yang ditemukan untuk minggu depan."
-- **If 'eventsFound' is greater than 0**:
-    - Start with a friendly sentence, like "Tentu, berikut adalah acara yang ditemukan:"
-    - List each event using Markdown bullet points (*).
-    - For each event, include the **title** (bolded), **description**, **pemateri** (speaker), **waktu** (time), and **tempat** (location).
-    - Format the date and time in a friendly, readable way (e.g., "Sabtu, 16 Agustus 2025").
-- **If there is an 'error' message**: Apologize to the user and inform them that there was a problem accessing the information.
-- **Under NO circumstances should you mention the JSON object or the tool.** Just present the final, clean answer.
+- If 'eventsFound' is 0: Inform the user that no events were found. Example: "Maaf, tidak ada acara yang ditemukan untuk minggu depan."
+- If 'eventsFound' > 0: List each event using Markdown bullet points (*). For each event, include the **title** (bolded), **description**, and **waktu** (time).
+- If there is an 'error': Apologize and state there was a problem.
+- Do not mention the JSON object or the tool. Just present the final, clean answer.
 `.trim();
 
-    // Create a new set of messages for the presenter, including the tool result.
-    const presenterMessages: CoreMessage[] = [
-        ...convertToModelMessages(messages),
-        {
-            role: 'assistant',
-            content: toolExecutionResult ? '' : "Halo! Ada yang bisa saya bantu terkait acara di Mesjid Al-Muhajirin?",
-        },
-    ];
+    // --- CORRECTED MESSAGE ASSEMBLY ---
+    const presenterMessages: CoreMessage[] = [...convertToModelMessages(messages)];
 
-    if (toolExecutionResult) {
-        presenterMessages.push({ role: 'tool', content: [toolExecutionResult] });
+    if (toolCallPart && toolResultPart) {
+      // If a tool was used, add the assistant's decision to call the tool...
+      presenterMessages.push({
+        role: 'assistant',
+        content: [toolCallPart], 
+      });
+      // ...and then add the result of that tool call.
+      presenterMessages.push({
+        role: 'tool',
+        content: [toolResultPart],
+      });
+    } else {
+      // If no tool was called (e.g., for a simple greeting), add a default response.
+      presenterMessages.push({
+        role: 'assistant',
+        content: "Halo! Ada yang bisa saya bantu terkait acara di Mesjid Al-Muhajirin?",
+      });
     }
 
     // Call the presenter AI and stream ITS response to the user.
     const presenterResult = await streamText({
         model: google('gemini-2.5-flash'),
         system: presenterSystemPrompt,
-        messages: presenterMessages,
+        messages: presenterMessages, // This is now a valid message history
     });
     
     return presenterResult.toUIMessageStreamResponse();
