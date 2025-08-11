@@ -1,108 +1,89 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Label } from "@/components/ui/label" // --- NEW --- Import the Label component
+import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton" // Using Skeleton for loading state
 
-type FinanceType = "income" | "expense"
-
-type FinanceItem = {
+// Define the data structure we expect from our new API
+type Totals = { income: number; expense: number; balance: number }
+type RecentTransaction = {
   id: string
-  type: FinanceType
+  type: "income" | "expense"
   amount: number
   category: string
   note?: string
-  date: string // ISO
+  occured_at: string
+}
+type FinanceData = {
+  totals: Totals
+  recent: RecentTransaction[]
+  categories: string[]
 }
 
 type TimeRange = "monthly" | "yearly" | "all"
 
-const CATEGORIES_KEY = "masjid_finance_categories"
-
 export default function FinancePreview() {
-  const [items, setItems] = useState<FinanceItem[]>([])
-  const [categories, setCategories] = useState<string[]>([])
-  const [selected, setSelected] = useState<string>("Semua")
+  // Centralized state for data, loading, and errors
+  const [data, setData] = useState<FinanceData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // --- MODIFIED ---
-  // The default time range is now "monthly"
+  // State for the filters
+  const [selectedCategory, setSelectedCategory] = useState<string>("Semua")
   const [timeRange, setTimeRange] = useState<TimeRange>("monthly")
 
+  // This useEffect now fetches data from our API whenever a filter changes
   useEffect(() => {
-    if (typeof window === "undefined") return
-    const raw = localStorage.getItem("masjid_finance")
-    if (raw) {
+    const fetchFinanceData = async () => {
+      setLoading(true)
+      setError(null)
       try {
-        setItems(JSON.parse(raw) as FinanceItem[])
-      } catch {
-        setItems([])
+        const url = `/api/finance?range=${timeRange}&category=${selectedCategory}`
+        const res = await fetch(url)
+        if (!res.ok) {
+          throw new Error("Gagal mengambil data keuangan dari server.")
+        }
+        const result = await res.json()
+        setData(result.data)
+      } catch (e: any) {
+        setError(e.message)
+      } finally {
+        setLoading(false)
       }
     }
-    const cats = localStorage.getItem(CATEGORIES_KEY)
-    if (cats) {
-      try {
-        const parsed = JSON.parse(cats) as string[]
-        const allCats = new Set(parsed)
-        ;(JSON.parse(raw || "[]") as FinanceItem[]).forEach((i) => allCats.add(i.category))
-        setCategories(["Semua", ...Array.from(allCats)])
-      } catch {
-        setCategories(["Semua"])
-      }
-    } else {
-      const setCats = new Set<string>()
-      ;(JSON.parse(raw || "[]") as FinanceItem[]).forEach((i) => setCats.add(i.category))
-      setCategories(["Semua", ...Array.from(setCats)])
-    }
-  }, [])
 
-  const filtered = useMemo(() => {
-    const now = new Date()
-    const timeFilteredItems = items.filter((item) => {
-      if (timeRange === "all") return true
-      const itemDate = new Date(item.date)
-      if (timeRange === "monthly") {
-        return itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear()
-      }
-      if (timeRange === "yearly") {
-        return itemDate.getFullYear() === now.getFullYear()
-      }
-      return true
-    })
+    fetchFinanceData()
+  }, [timeRange, selectedCategory]) // Re-run when either filter changes
 
-    if (selected === "Semua") return timeFilteredItems
-    return timeFilteredItems.filter((i) => i.category === selected)
-  }, [items, selected, timeRange])
+  // Loading State UI
+  if (loading) {
+    return <FinanceSkeleton />
+  }
 
-  const totals = useMemo(() => {
-    const income = filtered.filter((i) => i.type === "income").reduce((s, i) => s + i.amount, 0)
-    const expense = filtered.filter((i) => i.type === "expense").reduce((s, i) => s + i.amount, 0)
-    const balance = income - expense
-    return { income, expense, balance }
-  }, [filtered])
+  // Error State UI
+  if (error || !data) {
+    return (
+      <section className="mx-auto max-w-6xl px-4 py-12 sm:py-16 text-center text-red-600">
+        <p>Error: {error || "Data tidak ditemukan."}</p>
+      </section>
+    )
+  }
 
-  const recent = useMemo(() => {
-    return [...filtered].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5)
-  }, [filtered])
-
+  // Success State UI
   return (
     <section id="finance" className="mx-auto max-w-6xl px-4 py-12 sm:py-16">
-      {/* --- AESTHETIC CHANGE --- */}
-      {/* Changed sm:items-end to sm:items-center for better vertical alignment */}
       <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <h2 className="text-2xl sm:text-3xl font-semibold text-neutral-900">Keuangan</h2>
           <p className="mt-1 text-sm text-neutral-600">Ringkasan pemasukan, pengeluaran, dan saldo.</p>
         </div>
-
         <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
-          {/* Time Filter with Label */}
           <div className="grid w-full sm:w-40 gap-1.5">
             <Label>Filter Waktu</Label>
             <Select value={timeRange} onValueChange={(value) => setTimeRange(value as TimeRange)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Filter Waktu" />
-              </SelectTrigger>
+              <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="monthly">Bulanan</SelectItem>
                 <SelectItem value="yearly">Tahunan</SelectItem>
@@ -110,18 +91,13 @@ export default function FinancePreview() {
               </SelectContent>
             </Select>
           </div>
-          {/* Category Filter with Label */}
           <div className="grid w-full sm:w-56 gap-1.5">
             <Label>Filter Kategori</Label>
-            <Select value={selected} onValueChange={setSelected}>
-              <SelectTrigger>
-                <SelectValue placeholder="Filter kategori" />
-              </SelectTrigger>
+            <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                {categories.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
-                  </SelectItem>
+                {data.categories.map((c) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -129,55 +105,46 @@ export default function FinancePreview() {
         </div>
       </div>
 
-      {/* The rest of your component remains the same */}
       <div className="mt-6 grid gap-6 sm:grid-cols-3">
         <Card>
-          <CardHeader>
-            <CardTitle className="text-neutral-900">Total Pemasukan</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle>Total Pemasukan</CardTitle></CardHeader>
           <CardContent className="text-2xl font-semibold text-emerald-700">
-            {totals.income.toLocaleString(undefined, { style: "currency", currency: "IDR" })}
+            {data.totals.income.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
           </CardContent>
         </Card>
         <Card>
-          <CardHeader>
-            <CardTitle className="text-neutral-900">Total Pengeluaran</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle>Total Pengeluaran</CardTitle></CardHeader>
           <CardContent className="text-2xl font-semibold text-rose-700">
-            {totals.expense.toLocaleString(undefined, { style: "currency", currency: "IDR" })}
+            {data.totals.expense.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
           </CardContent>
         </Card>
         <Card>
-          <CardHeader>
-            <CardTitle className="text-neutral-900">Saldo</CardTitle>
-          </CardHeader>
-          <CardContent
-            className={"text-2xl font-semibold " + (totals.balance >= 0 ? "text-neutral-900" : "text-rose-700")}
-          >
-            {totals.balance.toLocaleString(undefined, { style: "currency", currency: "IDR" })}
+          <CardHeader><CardTitle>Saldo</CardTitle></CardHeader>
+          <CardContent className={"text-2xl font-semibold " + (data.totals.balance >= 0 ? "text-neutral-900" : "text-rose-700")}>
+            {data.totals.balance.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
           </CardContent>
         </Card>
       </div>
 
       <Card className="mt-6">
         <CardHeader>
-          <CardTitle className="text-neutral-900">
-            {selected === "Semua" ? "Transaksi Terbaru" : "Transaksi Terbaru • " + selected}
+          <CardTitle>
+            {selectedCategory === "Semua" ? "Transaksi Terbaru" : `Transaksi Terbaru • ${selectedCategory}`}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {recent.length === 0 ? (
-            <p className="text-neutral-600">Belum ada transaksi yang tercatat.</p>
+          {data.recent.length === 0 ? (
+            <p className="text-neutral-600">Belum ada transaksi yang tercatat untuk filter ini.</p>
           ) : (
-            recent.map((it) => (
+            data.recent.map((it) => (
               <div key={it.id} className="flex items-start justify-between gap-3 rounded-md border p-3">
                 <div className="min-w-0">
-                  <div className="font-medium text-neutral-900">
-                    {it.type === "income" ? "Pemasukan" : "Pengeluaran"} • {it.category}
+                  <div className="font-medium text-neutral-900 capitalize">
+                    {it.type} • {it.category}
                   </div>
                   <div className="text-sm text-neutral-700">
-                    {new Date(it.date).toLocaleDateString()} •{" "}
-                    {it.amount.toLocaleString(undefined, { style: "currency", currency: "IDR" })}
+                    {new Date(it.occured_at).toLocaleDateString("id-ID")} •{" "}
+                    {it.amount.toLocaleString("id-ID", { style: "currency", currency: "IDR" })}
                   </div>
                   {it.note && <p className="mt-1 text-sm text-neutral-600">{it.note}</p>}
                 </div>
@@ -186,6 +153,24 @@ export default function FinancePreview() {
           )}
         </CardContent>
       </Card>
+    </section>
+  )
+}
+
+// A helper component for the loading state to keep the main component clean
+function FinanceSkeleton() {
+  return (
+    <section className="mx-auto max-w-6xl px-4 py-12 sm:py-16">
+      <div className="flex justify-between">
+        <div className="w-1/3 space-y-2"><Skeleton className="h-8 w-3/4" /><Skeleton className="h-4 w-1/2" /></div>
+        <div className="flex gap-3"><Skeleton className="h-10 w-40" /><Skeleton className="h-10 w-56" /></div>
+      </div>
+      <div className="mt-6 grid gap-6 sm:grid-cols-3">
+        <Skeleton className="h-28 w-full" />
+        <Skeleton className="h-28 w-full" />
+        <Skeleton className="h-28 w-full" />
+      </div>
+      <Skeleton className="mt-6 h-48 w-full" />
     </section>
   )
 }
