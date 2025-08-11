@@ -117,7 +117,11 @@ export default function AllTransactionsPage() {
           <Label>Filter Kategori</Label>
           <Select value={selectedCategory} onValueChange={setSelectedCategory}>
             <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>{(data.categories || []).map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}</SelectContent>
+            <SelectContent>
+              {(data?.categories || []).map((c) => (
+                <SelectItem key={c} value={c}>{c}</SelectItem>
+              ))}
+            </SelectContent>
           </Select>
         </div>
         <div className="grid w-full gap-1.5">
@@ -136,10 +140,10 @@ export default function AllTransactionsPage() {
       <Card className="mt-6">
         <CardHeader><CardTitle>Daftar Transaksi</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          {(data.transactions || []).length === 0 ? (
+          {(data?.transactions || []).length === 0 ? (
             <p className="text-center text-neutral-600 py-8">Tidak ada transaksi yang cocok dengan filter ini.</p>
           ) : (
-            (data.transactions || []).map((it) => (
+            (data?.transactions || []).map((it) => (
               <div key={it.id} className="flex items-start justify-between gap-3 rounded-md border p-3">
                 <div className="min-w-0">
                   <div className={`font-medium capitalize ${it.type === 'income' ? 'text-emerald-700' : 'text-rose-700'}`}>
