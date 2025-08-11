@@ -13,22 +13,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "No file provided." }, { status: 400 })
   }
 
-  // --- THIS IS THE NEW, INTEGRATED CODE ---
-  // This block will attempt to create the bucket with the correct policies.
-  // The .catch(() => {}) is crucial: it ignores the error if the bucket already exists,
-  // allowing the code to proceed without crashing.
+  // This block attempts to create the bucket. The .catch() part ignores the
+  // error if the bucket already exists, allowing the code to proceed.
   await admin.storage.createBucket(BUCKET_NAME, {
     public: true, // Make files publicly accessible
     fileSizeLimit: 10 * 1024 * 1024, // 10MB limit
-    allowedMimeTypes: [ // Define allowed file types for security
-        "application/pdf", 
-        "text/plain", 
-        "text/markdown"
+    // --- MODIFIED SECTION ---
+    allowedMimeTypes: [
+        "application/pdf",
+        "text/plain",
+        "text/markdown",
+        // Add the MIME type for .docx files
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        // Optional: Add the MIME type for older .doc files
+        "application/msword"
     ],
   }).catch(() => {
     // Ignore any error, which likely means the bucket already exists.
   })
-  // --- END OF NEW CODE ---
 
   const fileExtension = file.name.split(".").pop() || "bin"
   const fileName = `${nanoid()}.${fileExtension}`
@@ -50,7 +52,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Could not get public URL." }, { status: 500 })
   }
 
-  return NextResponse.json({ 
+  return NextResponse.json({
     publicUrl: publicUrlData.publicUrl,
     path: uploadData.path
   })
